@@ -1,64 +1,33 @@
-// app.js - Наше тестовое приложение, использующее SlightUI
+// Файл: app.js (теперь он не зависит от require)
+// Он будет обернут сервером в функцию, которая примет SlightUI как аргумент.
 
-// Импортируем все необходимое из нашего фреймворка
-const { UI, Layout, Text, Button, Input, If, For } = require('./index.js');
+const { UI, Layout, Text, Button, Input, If, For } = SlightUI;
 
-// 1. Определяем начальное состояние приложения
 const initialState = {
   counter: 0,
-  inputText: 'Привет, мир!',
+  inputText: 'Автоматизация работает!',
   tasks: [
-    { id: 1, title: 'Написать ядро фреймворка', done: true },
-    { id: 2, title: 'Создать компоненты', done: true },
-    { id: 3, title: 'Протестировать все вместе!', done: false },
+    { id: 1, title: 'Задача 1', done: true },
+    { id: 2, title: 'Задача 2', done: false },
   ],
 };
 
-// 2. Описываем внешний вид приложения с помощью функции-чертежа
 function AppView(state) {
   return Layout({
-    gap: 20, // Расстояние между элементами
+    gap: 20,
     children: [
-      Text({ value: 'Добро пожаловать в SlightUI!', size: 'large', weight: 'bold' }),
-      
-      // Блок счетчика
+      Text({ value: 'SlightUI с полной автоматизацией!', size: 'large' }),
       Layout({ direction: 'horizontal', gap: 10, children: [
-        Button({
-          label: 'Нажми меня!',
-          onClick: () => state.counter++, // Просто меняем состояние
-        }),
-        Text({ value: `Счетчик: ${state.counter}` }),
+        Button({ label: `Счетчик: ${state.counter}`, onClick: () => state.counter++ }),
       ]}),
-      
-      // Условный рендеринг
-      If({
-        condition: state.counter > 5,
-        then: () => Text({ value: 'Отличная работа! Счетчик больше пяти.', size: 'small' })
-      }),
-
-      // Двусторонняя привязка
-      Input({
-        id: 'main-input',
-        placeholder: 'Введите текст...',
-        bindTo: state,
-        key: 'inputText',
-      }),
-      Text({ value: `Вы ввели: ${state.inputText}` }),
-
-      // Рендеринг списка
-      Text({ value: 'Список задач:', weight: 'bold' }),
-      For({
-        each: state.tasks,
-        as: (task) => Text({
-          value: task.title,
-          strikethrough: task.done, // Зачеркиваем выполненные задачи
-        }),
-      }),
+      If({ condition: state.counter > 5, then: () => Text({ value: 'Счетчик больше пяти.' }) }),
+      Input({ id: 'main-input', bindTo: state, key: 'inputText' }),
+      Text({ value: `Введено: ${state.inputText}` }),
+      For({ each: state.tasks, as: (task) => Text({ value: task.title, strikethrough: task.done }) }),
     ],
   });
 }
 
-// 3. Создаем и монтируем приложение
 UI.create({
   target: document.getElementById('app'),
   view: AppView,
