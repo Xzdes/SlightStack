@@ -1,162 +1,66 @@
-// Файл: core/renderer.js (Версия 4.1 - Финальные исправления)
+// Файл: core/renderer.js (Версия 1.0.2 - Финальная)
 
 const tracker = require('./tracker');
-const { createReactive } = require('./reactive');
+const { createReactive, createEffect } = require('./reactive');
 
-// --- Утилиты для обновления DOM ---
-function setProp(el, key, value) {
-    // Хуки жизненного цикла и обработчики событий - это свойства, а не атрибуты
-    if (key.startsWith('on')) {
-        const eventName = key.substring(2).toLowerCase();
-        el.addEventListener(eventName, value);
-    } else if (key === 'style') {
-        Object.assign(el.style, value);
-    } else if (key === 'value' || key === 'checked') {
-        el[key] = value;
-    } 
-    // `children` и `key` - это служебные пропсы, их не нужно рендерить как атрибуты
-    else if (key !== 'children' && key !== 'key' && key !== 'tag') {
-        el.setAttribute(key, value);
+function mount(vNode, container, activeElement) {
+  if (vNode === null || vNode === undefined || vNode === false) return;
+  if (typeof vNode === 'string' || typeof vNode === 'number') { container.appendChild(document.createTextNode(String(vNode))); return; }
+  if (Array.isArray(vNode)) { vNode.forEach(child => mount(child, container, activeElement)); return; }
+  
+  const { type, props = {} } = vNode;
+  if (type === 'Fragment') { (props.children || []).forEach(child => mount(child, container, activeElement)); return; }
+  
+  const el = document.createElement(props.tag || 'div');
+
+  for (const key in props) {
+    if (key.startsWith('on')) { const eventName = key.substring(2).toLowerCase(); el.addEventListener(eventName, props[key]); }
+    else if (key === 'children') { mount(props.children, el, activeElement); }
+    else if (key === 'style') { Object.assign(el.style, props[key]); }
+    else if (key !== 'tag' && key !== 'key') {
+      // --- ВОТ ОНО, РЕШЕНИЕ ДЛЯ INPUT ---
+      // Если мы рендерим инпут, и он сейчас в фокусе, НЕ устанавливаем его value.
+      // Это предотвратит "прыжок" каретки.
+      if (key === 'value' && el.tagName === 'INPUT' && activeElement === el) {
+          // пропустить
+      } else {
+          el.setAttribute(key, props[key]);
+          if (key === 'value' || key === 'checked') { el[key] = props[key]; }
+      }
     }
+  }
+  container.appendChild(el);
+  if (props.onMount) props.onMount(el);
 }
 
-function removeProp(el, key, value) {
-    if (key.startsWith('on')) {
-        const eventName = key.substring(2).toLowerCase();
-        el.removeEventListener(eventName, value);
-    } else {
-        el.removeAttribute(key);
-    }
-}
 
-function updateProps(el, newProps, oldProps = {}) {
-    const props = { ...oldProps, ...newProps };
-    for (const key in props) {
-        if (newProps[key] !== oldProps[key]) {
-            if (newProps[key] === undefined) {
-                removeProp(el, key, oldProps[key]);
-            } else {
-                setProp(el, key, newProps[key]);
-            }
+function render(viewFn, state, targetElement) {
+    createEffect(() => {
+        const activeElement = document.activeElement;
+        let activeElementId = null;
+        let selectionStart, selectionEnd;
+        if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+            activeElementId = activeElement.id;
+            selectionStart = activeElement.selectionStart;
+            selectionEnd = activeElement.selectionEnd;
         }
-    }
-}
 
-// --- Утилиты для создания и удаления узлов ---
-function mount(vNode) {
-    if (vNode === null || vNode === undefined) return document.createComment('placeholder');
-    if (typeof vNode !== 'object') return document.createTextNode(String(vNode));
+        const vDom = viewFn(state);
 
-    const el = document.createElement(vNode.props.tag || 'div');
-    vNode.el = el; // Сохраняем ссылку на реальный узел
-    updateProps(el, vNode.props);
-    (vNode.props.children || []).forEach(child => el.appendChild(mount(child)));
-
-    // Вызываем хук после того, как все дети смонтированы
-    if (vNode.props.onMount) vNode.props.onMount(el);
-    return el;
-}
-
-function unmount(vNode) {
-    if (!vNode || typeof vNode !== 'object') return;
-    // Вызываем хук перед удалением
-    if (vNode.props?.onUnmount) vNode.props.onUnmount(vNode.el);
-    (vNode.props.children || []).forEach(unmount);
-}
-
-// --- Главный алгоритм Patch ---
-function patch(parentEl, newChildren, oldChildren) {
-    const oldKeyedChildren = new Map();
-    (oldChildren || []).forEach(child => {
-        if (child?.props?.key) oldKeyedChildren.set(child.props.key, child);
-    });
-    
-    let lastPlacedNode = null;
-
-    (newChildren || []).forEach((newChild, i) => {
-        const key = newChild?.props?.key;
-        const oldChild = oldKeyedChildren.get(key);
-
-        if (oldChild) {
-            patchNode(oldChild, newChild);
-            oldKeyedChildren.delete(key);
-            if (parentEl.childNodes[i] !== oldChild.el) {
-                parentEl.insertBefore(oldChild.el, parentEl.childNodes[i]);
-            }
-        } else {
-            const elToInsertBefore = parentEl.childNodes[i] || null;
-            parentEl.insertBefore(mount(newChild), elToInsertBefore);
-        }
-    });
-
-    oldKeyedChildren.forEach(oldChild => {
-        unmount(oldChild);
-        parentEl.removeChild(oldChild.el);
-    });
-    
-     // Простая очистка для неключевых списков, если они остались
-    while (parentEl.childNodes.length > newChildren.length) {
-        unmount({ props: {} }); // Приблизительно
-        parentEl.removeChild(parentEl.lastChild);
-    }
-}
-
-
-function patchNode(oldVNode, newVNode) {
-    const el = newVNode.el = oldVNode.el;
-    
-    if (newVNode.type !== oldVNode.type) {
-        parentEl.replaceChild(mount(newVNode), el);
-        unmount(oldVNode);
-        return;
-    }
-
-    if (typeof newVNode !== 'object') {
-        if (el.textContent !== String(newVNode)) el.textContent = String(newVNode);
-        return;
-    }
-    
-    updateProps(el, newVNode.props, oldVNode.props);
-    
-    const newChildren = newVNode.props.children || [];
-    const oldChildren = oldVNode.props.children || [];
-
-    if (newChildren.length > 0 || oldChildren.length > 0) {
-        patch(el, newChildren, oldChildren);
-    }
-}
-
-function render(viewFn, initialState, targetElement) {
-    const depMap = new Map();
-    const state = createReactive(initialState, depMap);
-    let oldVDom = null;
-    let isUpdating = false;
-
-    const update = () => {
-        if (isUpdating) return;
-        isUpdating = true;
-        
-        const activeElementId = document.activeElement?.id;
-        
-        tracker.startTracking(update);
-        const newVDom = viewFn(state);
-        tracker.stopTracking();
-
-        if (oldVDom === null) {
-            targetElement.innerHTML = '';
-            targetElement.appendChild(mount(newVDom));
-        } else {
-            patchNode(oldVDom, newVDom);
-        }
-        oldVDom = newVDom;
+        targetElement.innerHTML = '';
+        // Передаем activeElement в mount
+        mount(vDom, targetElement, activeElementId ? document.getElementById(activeElementId) : null);
         
         if (activeElementId) {
-            document.getElementById(activeElementId)?.focus();
+            const newActiveElement = document.getElementById(activeElementId);
+            if (newActiveElement) {
+                newActiveElement.focus();
+                if(typeof selectionStart === 'number') {
+                    newActiveElement.setSelectionRange(selectionStart, selectionEnd);
+                }
+            }
         }
-        
-        isUpdating = false;
-    };
-    update();
+    });
 }
 
-module.exports = { render, createReactive };
+module.exports = { render };

@@ -1,4 +1,4 @@
-// Файл: server.js (Версия с исправлением UI.create)
+// Файл: server.js (Финальная, правильная архитектура)
 
 const express = require('express');
 const fs = require('fs');
@@ -13,21 +13,26 @@ app.get('/bundle.js', (req, res) => {
     console.log('Запрос на /bundle.js, полная автоматическая сборка...');
     res.setHeader('Content-Type', 'application/javascript');
     
+    // --- 1. Создаем "виртуальный" главный файл для сборки ---
     let entryPointCode = `
+        // Подключаем ядро фреймворка
         const { render } = require('./core/renderer.js');
+        const { createReactive } = require('./core/reactive.js'); 
+        
+        // Создаем объект, который будет нашим публичным API SlightUI
         const autoExports = {};
 
-        // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-        // Сразу добавляем объект UI, чтобы он был доступен
+        // Добавляем в него ключевые функции
         autoExports.UI = {
             create: function(options) {
-                if (!options || !options.target) throw new Error('SlightUI.create: "target" обязателен.');
-                if (typeof options.view !== 'function') throw new Error('SlightUI.create: "view" должна быть функцией.');
-                render(options.view, options.state || {}, options.target);
+                // UI.create теперь просто вызывает render, передавая ему уже готовый реактивный state
+                render(options.view, options.state, options.target);
             }
         };
+        autoExports.createReactive = createReactive;
     `;
 
+    // --- 2. Автоматически сканируем папки и добавляем require для всех компонентов ---
     function appendRequires(dirPath) {
         const absolutePath = path.join(__dirname, dirPath);
         const files = fs.readdirSync(absolutePath);
@@ -43,15 +48,18 @@ app.get('/bundle.js', (req, res) => {
     appendRequires('components');
     appendRequires('helpers');
     
+    // --- 3. Читаем код нашего приложения app.js как текст ---
     const appCode = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf-8');
     
+    // --- 4. Добавляем код app.js в конец, оборачивая его в функцию ---
+    // Это позволяет передать наш собранный объект `autoExports` внутрь `app.js`
     entryPointCode += `
-        // Вставляем код app.js и передаем ему собранный объект
         (function(SlightUI) {
             ${appCode}
         })(autoExports);
     `;
 
+    // --- 5. Собираем весь сгенерированный код с помощью Browserify ---
     const b = browserify();
     
     const stream = require('stream');
@@ -60,7 +68,7 @@ app.get('/bundle.js', (req, res) => {
     readable.push(entryPointCode);
     readable.push(null);
     
-    b.add(readable, { basedir: __dirname });
+    b.add(readable, { basedir: __dirname }); // `basedir` важен, чтобы `require` находил файлы
     
     b.bundle()
      .on('error', (err) => { 
@@ -71,11 +79,12 @@ app.get('/bundle.js', (req, res) => {
      .pipe(res);
 });
 
-// Отдаем HTML
+// Отдаем HTML-страницу
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'test.html'));
 });
 
+// Запускаем сервер
 app.listen(PORT, () => {
-    console.log(`\n✅ SlightUI DevServer (v.Auto) запущен на http://localhost:${PORT}`);
+    console.log(`\n✅ SlightUI DevServer (Финальная Архитектура) запущен на http://localhost:${PORT}`);
 });

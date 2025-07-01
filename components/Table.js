@@ -1,11 +1,16 @@
-// Файл: components/Table.js (Исправленная версия)
+// Файл: components/Table.js (Финальная версия с явной зависимостью)
 
 const For = require('../helpers/for.js');
 
 function Table(props) {
     const { headers = [], rows = [], renderCell, key } = props;
 
-    // --- ИСПРАВЛЕНИЕ: Определяем функции до их использования ---
+    // --- ВОТ ОНО! РЕШЕНИЕ! ---
+    // Мы явно читаем свойство .length у массива rows, который пришел в пропсах.
+    // Так как rows - это наш appState.tasks, то во время рендеринга этой таблицы
+    // наш Proxy увидит это чтение и подпишет текущий `update` на изменения `tasks`.
+    const dependencyTrigger = rows.length;
+
     const renderHeader = () => ({
         type: 'TableHeader',
         props: {
@@ -33,11 +38,11 @@ function Table(props) {
             tag: 'tbody',
             children: For({
                 each: rows,
-                key: 'id', // Ключ для For-компонента
+                key: 'id',
                 as: (row) => ({
                     type: 'BodyRow',
                     props: {
-                        key: row.id, // Ключ для самого tr
+                        key: row.id,
                         tag: 'tr',
                         children: headers.map(header => ({
                             type: 'BodyCell',
@@ -61,7 +66,7 @@ function Table(props) {
         type: 'Table',
         props: {
             tag: 'table',
-            key: key, // Пробрасываем ключ, если он есть
+            key: key,
             children: [renderHeader(), renderBody()]
         }
     };
