@@ -1,12 +1,8 @@
-// Файл: components/input.js (Обновленная версия)
+// Файл: components/input.js (Версия 2.0 - без bindTo)
 
 function Input(props) {
-  const { placeholder = '', bindTo, key, id } = props; // Добавили id
-
-  if (!bindTo || typeof key !== 'string') {
-    console.error('Input component requires "bindTo" (the state object) and "key" (a string) props.');
-    return null;
-  }
+  // Убираем деструктуризацию bindTo и key
+  const { placeholder = '', id, onInput, value, onMount } = props;
 
   const style = {
     padding: '10px',
@@ -15,23 +11,15 @@ function Input(props) {
     borderRadius: '5px',
     width: 'calc(100% - 22px)',
   };
-  
-  const onInput = (event) => {
-    bindTo[key] = event.target.value;
-  };
 
-  const finalProps = { // Собираем пропсы в отдельный объект
+  // Собираем пропсы для передачи в рендерер.
+  // Мы просто передаем все, что пришло, дальше.
+  const finalProps = {
+      ...props, // Передаем все пропсы (включая id, onMount и т.д.)
       tag: 'input',
       style: style,
       placeholder: placeholder,
-      value: bindTo[key],
-      onInput: onInput,
   };
-
-  // Если id передан, добавляем его
-  if (id) {
-      finalProps.id = id;
-  }
 
   return {
     type: 'Input',
