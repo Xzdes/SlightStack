@@ -1,4 +1,4 @@
-// Файл: core/renderer.js (ПОСЛЕДНЯЯ, ОКОНЧАТЕЛЬНАЯ, ПОБЕДНАЯ ВЕРСИЯ)
+// Файл: core/renderer.js (ФИНАЛЬНАЯ, ОКОНЧАТЕЛЬНАЯ, ПОБЕДНАЯ ВЕРСИЯ)
 
 const { createEffect } = require('./reactive');
 
@@ -26,14 +26,11 @@ function normalize(node) {
     return node;
 }
 
-// --- 2. Монтирование, Размонтирование ---
+// --- 2. Жизненный цикл: Монтирование и Размонтирование ---
 
 function unmount(vNode) {
     if (vNode.type === 'Fragment') {
         vNode.children.forEach(unmount);
-        // Удаляем якоря фрагмента
-        vNode.el.parentNode.removeChild(vNode.el);
-        vNode.endAnchor.parentNode.removeChild(vNode.endAnchor);
         return;
     }
     if (vNode.props && vNode.props.onUnmount) {
@@ -45,20 +42,17 @@ function unmount(vNode) {
 
 function mount(vNode, container) {
     if (!vNode) return;
-
+    
     const { type, props = {}, children = [] } = vNode;
     let el;
 
     if (type === 'Fragment') {
-        el = document.createComment('fragment-start');
-        vNode.el = el;
-        container.appendChild(el);
-        const endAnchor = document.createComment('fragment-end');
-        vNode.endAnchor = endAnchor;
+        // Дети фрагмента монтируются напрямую в контейнер.
+        // Сам фрагмент не имеет DOM-представления.
         children.forEach(child => mount(child, container));
-        container.appendChild(endAnchor);
+        vNode.el = container; // Ссылаемся на родителя для будущего patch
         return;
-    }
+    } 
     if (type === 'text') {
         el = document.createTextNode(children[0] || '');
     } else if (type === 'HybridComponent') {
@@ -67,7 +61,7 @@ function mount(vNode, container) {
         el = document.createElement(props.tag || 'div');
         children.forEach(child => mount(child, el));
     }
-
+    
     vNode.el = el;
     patchProps(el, {}, props);
     if (container) container.appendChild(el);
@@ -115,11 +109,11 @@ function patch(n1, n2) {
         return;
     }
 
-    const el = n2.el = n1.el;
+    n2.el = n1.el;
+    const el = n2.el;
 
-    if (n1.type === 'Fragment') {
-        n2.endAnchor = n1.endAnchor;
-        patchChildren(el.parentNode, n1.children, n2.children, n1.endAnchor);
+    if (n1.type === 'Fragment' || n2.type === 'Fragment') {
+        patchChildren(el, n1.children, n2.children);
         return;
     }
     if (n1.type === 'text') {
@@ -134,7 +128,7 @@ function patch(n1, n2) {
         }
         return;
     }
-
+    
     patchProps(el, n1.props || {}, n2.props || {});
     patchChildren(el, n1.children, n2.children);
 }
@@ -216,7 +210,8 @@ function patchChildren(container, oldCh, newCh, anchor) {
         for (let i = newStartIdx; i <= newEndIdx; i++) {
             if(newCh[i]) {
                 mount(newCh[i], container);
-                container.insertBefore(newCh[i].el, anchor);
+                const anchorNode = newStartIdx > 0 ? oldCh[oldStartIdx - 1]?.el?.nextSibling : container.firstChild;
+                container.insertBefore(newCh[i].el, anchorNode || null);
             }
         }
     } else if (newStartIdx > newEndIdx) {
@@ -227,10 +222,8 @@ function patchChildren(container, oldCh, newCh, anchor) {
 }
 
 function isSameVNodeType(n1, n2) {
-    if (!n1 || !n2) return false;
-    return n1.type === n2.type && (n1.props?.key === n2.props?.key);
+    return n1.type === n2.type && n1.props?.key === n2.props?.key;
 }
-
 function createKeyToOldIdx(children, beginIdx, endIdx) {
     const map = {};
     for (let i = beginIdx; i <= endIdx; i++) {
