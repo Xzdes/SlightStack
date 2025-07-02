@@ -1,93 +1,50 @@
-// Файл: app.js (Финальная версия с правильным управлением состоянием)
-// Этот код будет обернут сервером, который передаст ему объект SlightUI
+// Файл: app.js (Финальная версия с гибридной кнопкой)
 
-// --- 1. Импортируем createReactive напрямую ---
-// Мы должны его экспортировать. Я исправлю это в server.js
-const { UI, Layout, Text, Button, Input, If, For, Table, Tabs, createReactive } = SlightUI;
-
-// 2. Создаем ОБЫЧНЫЙ объект с начальными данными
-const initialState = {
+// UI передается сервером
+const state = UI.createReactive({
     counter: 0,
-    textInputValue: 'Текст',
-    tasks: [
-        { id: 1, text: 'Задача 1', done: true },
-        { id: 2, text: 'Задача 2', done: false },
-    ],
-    activeTab: 0,
-};
+    textInputValue: "Fluent API работает!",
+    hybridButtonText: "Кнопка из Uiverse"
+});
 
-// --- 3. ДЕЛАЕМ ЕГО РЕАКТИВНЫМ ОДИН РАЗ ---
-const state = createReactive(initialState);
+const AppView = (s) => (
+    UI.stack().gap(25).style({
+        maxWidth: '600px',
+        margin: '40px auto',
+        padding: '30px',
+        background: '#fff',
+        borderRadius: '12px',
+        boxShadow: '0 5px 15px rgba(0,0,0,0.1)',
+        alignItems: 'flex-start' // Выравниваем все по левому краю
+    }).children(
 
-// 4. Все обработчики теперь работают с РЕАКТИВНЫМ `state`
-const onInputMount = (el) => {
-    console.log('Элемент Input смонтирован!');
-    el.style.borderColor = 'purple';
-};
+        UI.text("SlightUI Fluent API").as('h1').bold(),
 
-const removeTask = (id) => {
-    // Мы меняем тот же самый `state`, за которым следит Proxy
-    state.tasks = state.tasks.filter(t => t.id !== id);
-};
+        UI.row().gap(15).align('center').children(
+            UI.text(`Счетчик: ${s.counter}`),
+            UI.button("+1").onClick(() => s.counter++)
+        ),
 
-const shuffleTasks = () => {
-    state.tasks.sort(() => Math.random() - 0.5);
-    state.tasks = [...state.tasks]; 
-};
+        UI.input()
+            .id("main-input")
+            .value(s.textInputValue)
+            .onInput(e => s.textInputValue = e.target.value),
+        
+        UI.if(s.textInputValue).then(
+             UI.text(`Введено: ${s.textInputValue}`).color('#777').small()
+        ),
+        
+        // --- ВОТ ОНА, НАША НОВАЯ КНОПКА! ---
+        UI.hybrid('uiverse-discover-button')
+          .replace('{{TEXT}}', s.hybridButtonText) // Управляем текстом из состояния
+          .on('button', 'click', () => {
+              alert('Клик по гибридной кнопке!');
+              s.hybridButtonText = 'Нажато!';
+          })
+    )
+);
 
-// 5. Главная функция-чертеж, она принимает тот же РЕАКТИВНЫЙ `state`
-function AppView(currentState) { // Переименовал для ясности
-    return Layout({
-        gap: 20,
-        children: [
-            Text({ value: 'SlightUI (Финальная Архитектура!)', size: 'large' }),
-            Tabs({
-                items: [
-                    {
-                        label: 'Основное',
-                        content: () => Layout({
-                            children: [
-                                Button({ label: 'Перемешать задачи', onClick: shuffleTasks }),
-                                Text({ value: 'Счетчик: ' + currentState.counter }),
-                                Button({ label: '+1', onClick: () => currentState.counter++ }),
-                                Input({
-                                    id: 'test-input',
-                                    value: currentState.textInputValue,
-                                    onInput: (e) => currentState.textInputValue = e.target.value,
-                                    onMount: onInputMount,
-                                }),
-                                Text({ value: `Введено: ${currentState.textInputValue}` }),
-                            ]
-                        })
-                    },
-                    {
-                        label: 'Таблица задач',
-                        content: () => Table({
-                            headers: [
-                                { key: 'id', label: 'ID' },
-                                { key: 'text', label: 'Задача' },
-                                { key: 'done', label: 'Выполнено' },
-                                { key: 'actions', label: 'Действия' }
-                            ],
-                            rows: currentState.tasks, // Читаем из реактивного состояния
-                            renderCell: (key, rowData) => {
-                                if (key === 'done') return rowData.done ? '✅' : '❌';
-                                if (key === 'actions') return Button({ label: 'Удалить', onClick: () => removeTask(rowData.id) });
-                                return rowData[key];
-                            },
-                        })
-                    }
-                ],
-                activeTab: currentState.activeTab,
-                onTabChange: (index) => currentState.activeTab = index
-            })
-        ]
-    });
-}
-
-// 6. Запускаем приложение, передавая уже готовый РЕАКТИВНЫЙ `state`
 UI.create({
     target: document.getElementById('app'),
-    view: AppView,
-    state: state // Передаем `state`, а не `initialState`
+    view: () => AppView(state)
 });

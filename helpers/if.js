@@ -1,12 +1,18 @@
 // Файл: helpers/if.js
-
-function If(props) {
-  const { condition, then: thenFn, else: elseFn } = props;
-  if (condition) {
-    return typeof thenFn === 'function' ? thenFn() : null;
-  } else {
-    return typeof elseFn === 'function' ? elseFn() : null;
-  }
+function IfBuilder(condition) {
+    this.condition = condition;
+    this.thenFn = () => null;
 }
-
-module.exports = If;
+IfBuilder.prototype.then = function(builder) { this.thenFn = () => builder; return this; };
+IfBuilder.prototype.else = function(builder) { this.elseFn = () => builder; return this; };
+IfBuilder.prototype.toJSON = function() {
+    if (this.condition) {
+        const builder = this.thenFn();
+        return builder && builder.toJSON ? builder.toJSON() : builder;
+    } else if (this.elseFn) {
+        const builder = this.elseFn();
+        return builder && builder.toJSON ? builder.toJSON() : builder;
+    }
+    return null;
+};
+module.exports = (condition) => new IfBuilder(condition);

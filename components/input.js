@@ -1,30 +1,23 @@
-// Файл: components/input.js (Версия 2.0 - без bindTo)
-
-function Input(props) {
-  // Убираем деструктуризацию bindTo и key
-  const { placeholder = '', id, onInput, value, onMount } = props;
-
-  const style = {
-    padding: '10px',
-    fontSize: '16px',
-    border: '1px solid #ccc',
-    borderRadius: '5px',
-    width: 'calc(100% - 22px)',
-  };
-
-  // Собираем пропсы для передачи в рендерер.
-  // Мы просто передаем все, что пришло, дальше.
-  const finalProps = {
-      ...props, // Передаем все пропсы (включая id, onMount и т.д.)
-      tag: 'input',
-      style: style,
-      placeholder: placeholder,
-  };
-
-  return {
-    type: 'Input',
-    props: finalProps,
-  };
+// Файл: components/input.js
+function InputBuilder() {
+this.vNode = {
+type: 'Input',
+props: {
+tag: 'input',
+type: 'text',
+style: {
+padding: '10px', fontSize: '16px', border: '1px solid #ccc',
+borderRadius: '5px', width: 'calc(100% - 22px)',
 }
-
-module.exports = Input;
+}
+};
+}
+InputBuilder.prototype.id = function(id) { this.vNode.props.id = id; return this; };
+InputBuilder.prototype.value = function(val) { this.vNode.props.value = val; return this; };
+InputBuilder.prototype.placeholder = function(text) { this.vNode.props.placeholder = text; return this; };
+InputBuilder.prototype.type = function(inputType) { this.vNode.props.type = inputType; return this; };
+InputBuilder.prototype.onInput = function(handler) { this.vNode.props.onInput = handler; return this; };
+InputBuilder.prototype.onChange = function(handler) { this.vNode.props.onChange = handler; return this; };
+InputBuilder.prototype.onMount = function(handler) { this.vNode.props.onMount = handler; return this; };
+InputBuilder.prototype.toJSON = function() { return this.vNode; };
+module.exports = () => new InputBuilder();
