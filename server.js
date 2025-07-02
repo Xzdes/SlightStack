@@ -1,4 +1,4 @@
-// Файл: server.js (Финальная версия с исправленным join)
+// Файл: server.js (Обновленная, пуленепробиваемая версия)
 
 const express = require('express');
 const fs = require('fs');
@@ -9,7 +9,7 @@ const app = express();
 const PORT = 3000;
 
 app.get('/bundle.js', (req, res) => {
-    console.log('Запрос на /bundle.js, запускаю полную сборку...');
+    console.log('Запрос на /bundle.js, запускаю безопасную сборку...');
     res.setHeader('Content-Type', 'application/javascript');
     
     const codeParts = [];
@@ -23,22 +23,33 @@ app.get('/bundle.js', (req, res) => {
         UI.createReactive = createReactive;
     `);
 
-    // Добавляем обычные компоненты
+    // --- ИЗМЕНЕНИЕ 1: Безопасная загрузка компонентов ---
     function appendBuilders(dirPath) {
         const absolutePath = path.join(__dirname, dirPath);
         if (!fs.existsSync(absolutePath)) return;
+        
         const files = fs.readdirSync(absolutePath);
         files.forEach(file => {
-            if (path.extname(file) === '.js') {
-                const builderName = path.basename(file, '.js');
-                codeParts.push(`UI.${builderName} = require('./${dirPath}/${file}');`);
+            if (path.extname(file) !== '.js') return;
+
+            const builderName = path.basename(file, '.js');
+            const relativePath = `./${dirPath}/${file}`;
+
+            try {
+                // Мы делаем require здесь, чтобы поймать синтаксические ошибки ДО сборки
+                require.resolve(path.join(absolutePath, file)); 
+                codeParts.push(`try { UI.${builderName} = require('${relativePath}'); } catch(e) { console.error('Ошибка инициализации компонента ${builderName}:', e); UI.${builderName} = () => ({ toJSON: () => ({ type: 'ErrorComponent', props: { message: 'Ошибка загрузки компонента ${builderName}' } }) }); }`);
+            } catch (e) {
+                console.error(`\n[ОШИБКА СБОРКИ] Не удалось загрузить компонент ${file}. Он не будет доступен.`, e.message);
+                // Мы не добавляем его в сборку, приложение не упадет.
             }
         });
     }
+
     appendBuilders('components');
     appendBuilders('helpers');
     
-    // Добавляем гибридные компоненты
+    // Безопасная загрузка гибридных компонентов (здесь код уже достаточно безопасен, т.к. использует try/catch)
     const hybridComponentsData = {};
     const hybridPath = path.join(__dirname, 'hybrid-components');
     if (fs.existsSync(hybridPath)) {
@@ -53,9 +64,10 @@ app.get('/bundle.js', (req, res) => {
                         css: fs.readFileSync(cssPath, 'utf-8')
                     };
                 }
-            } catch (e) { console.error(`Ошибка чтения ${dirName}:`, e.message); }
+            } catch (e) { console.error(`[ОШИБКА СБОРКИ] Ошибка чтения гибридного компонента ${dirName}:`, e.message); }
         });
     }
+    // Остальная часть кода server.js без изменений...
     codeParts.push(`const hybridData = ${JSON.stringify(hybridComponentsData)};`);
     codeParts.push(`
         UI.hybrid = function(componentName) {
@@ -65,7 +77,7 @@ app.get('/bundle.js', (req, res) => {
                 props: { componentName: componentName, replacements: {}, listeners: {} }
             };
             if (!data) {
-                vNode.props.innerHTML = '<div style="border:2px solid red; padding:10px; color:red;">Компонент <strong>' + componentName + '</strong> не найден</div>';
+                vNode.props.innerHTML = '<div style="border:2px solid red; padding:10px; color:red;">Гибридный компонент <strong>' + componentName + '</strong> не найден</div>';
             } else {
                 vNode.props.innerHTML = data.html;
                 vNode.props.inlineStyle = data.css;
@@ -83,12 +95,9 @@ app.get('/bundle.js', (req, res) => {
         };
     `);
     
-    // Добавляем app.js
     const appCode = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf-8');
-    codeParts.push(`(function(UI) { ${appCode} })(UI);`);
+    codeParts.push(`try { (function(UI) { ${appCode} })(UI); } catch(e) { console.error('Критическая ошибка в app.js:', e); document.getElementById('app').innerHTML = '<div style="border: 2px solid darkred; background: #ffdddd; padding: 20px;"><h2>Критическая ошибка в app.js</h2><pre>' + e.stack + '</pre></div>'; }`);
 
-    // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-    // Объединяем части кода с настоящим переносом строки.
     const finalCode = codeParts.join('\n');
     
     const b = browserify();
@@ -110,6 +119,7 @@ app.get('/bundle.js', (req, res) => {
 
     bundleStream.pipe(res);
 });
+
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'test.html'));
