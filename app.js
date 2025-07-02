@@ -1,140 +1,95 @@
-// Файл: app.js (Финальная рабочая версия)
+// Файл: app.js (ФИНАЛЬНАЯ, ПОБЕДНАЯ ВЕРСИЯ)
 
-// UI передается сервером и содержит все наши строители
+// --- Стили и простые компоненты-заготовки ---
+const panelStyle = { padding: '15px', borderRadius: '8px', boxSizing: 'border-box' };
+const headerFooterStyle = { ...panelStyle, background: '#eef2ff', border: '1px solid #e0e7ff' };
+const sidebarStyle = { ...panelStyle, background: '#ffffff', borderRight: '1px solid #e5e7eb' };
+const contentStyle = { ...panelStyle, background: '#ffffff', overflow: 'auto' }; // Только контент может скроллиться
+
+// --- Компоненты-строители для частей макета ---
+
+const Header = () => 
+    UI.row().align('center').children(
+        UI.text("SlightUI Dashboard").as('h2').bold().color('#4f46e5')
+    );
+
+const Footer = () => 
+    UI.row().align('center').justify('center').children(
+        UI.text("© 2024").small().color('#6b7280')
+    );
+
+const Sidebar = () => 
+    UI.stack().gap(8).children(
+        UI.text("Навигация").bold().color('#374151'),
+        UI.button("Главная"),
+        UI.button("Профиль"),
+        UI.button("Настройки")
+    );
+
 const state = UI.createReactive({
-    viewTitle: "SlightUI: Демонстрация VDOM",
-    showAdminPanel: true,
-    adminName: "Администратор",
     users: [
-        { id: 1, name: 'Анна К.', role: 'Админ', status: 'active' },
-        { id: 2, name: 'Петр В.', role: 'Кассир', status: 'active' },
-        { id: 3, name: 'Иван С.', role: 'Пользователь', status: 'inactive' },
+        { id: 1, name: 'Анна Кузнецова', role: 'Администратор' },
+        { id: 2, name: 'Петр Васильев', role: 'Менеджер' },
+        { id: 3, name: 'Иван Сидоров', role: 'Пользователь' },
     ],
-    hybridButtonText: "Кнопка из Uiverse"
+    showInfo: true,
 });
 
-// =======================================================
-// --- ОБРАБОТЧИКИ И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-// =======================================================
+const Content = () => 
+    UI.stack().gap(20).children(
+        UI.text("Основной контент").as('h3').bold(),
+        UI.row().gap(10).children(
+            UI.button("Показать/Скрыть инфо").onClick(() => state.showInfo = !state.showInfo),
+            UI.button("Перемешать").onClick(() => {
+                state.users.sort(() => Math.random() - 0.5);
+                state.users = [...state.users];
+            })
+        ),
+        UI.if(state.showInfo).then(() =>
+            UI.text("Это информационный блок.").key('info-block').style({ 
+                border: '1px solid #e5e7eb', padding: '15px', borderRadius: '5px', background: '#f9fafb' 
+            })
+        ),
+        UI.text("Таблица пользователей:").bold(),
+        UI.table()
+            .headers([{ key: 'name', label: 'Имя' }, { key: 'role', label: 'Роль' }])
+            .rows(state.users)
+    );
 
-const onTitleMount = (domElement) => {
-    console.log('Главный заголовок смонтирован!', domElement);
-    domElement.style.transition = 'color 0.3s';
-    domElement.style.color = '#6200ea';
-    domElement.addEventListener('mouseenter', () => domElement.style.color = '#006aff');
-    domElement.addEventListener('mouseleave', () => domElement.style.color = '#6200ea');
-};
-
-const addUser = () => {
-    const id = state.users.length > 0 ? Math.max(...state.users.map(u => u.id)) + 1 : 1;
-    const newUser = { id, name: `Новый пользователь ${id}`, role: 'Пользователь', status: 'active' };
-    state.users.push(newUser);
-    state.users = [...state.users]; // Триггерим реактивность
-};
-
-const removeUser = (idToRemove) => {
-    state.users = state.users.filter(user => user.id !== idToRemove);
-};
-
-const shuffleUsers = () => {
-    state.users.sort(() => Math.random() - 0.5);
-    state.users = [...state.users];
-};
-
-const reverseUsers = () => {
-    state.users.reverse();
-    state.users = [...state.users];
-};
-
-const updateUserStatus = (userId) => {
-    const user = state.users.find(u => u.id === userId);
-    if (user) {
-        user.status = user.status === 'active' ? 'inactive' : 'active';
-        state.users = [...state.users]; // Обновляем для VDOM
-    }
-};
-
-const saveAdminSettings = () => {
-    alert(`Настройки сохранены! Новое имя администратора: "${state.adminName}"`);
-};
-
-// ===================================
 // --- ГЛАВНЫЙ ВИД ПРИЛОЖЕНИЯ ---
-// ===================================
 
-const AppView = (s) => (
-    UI.stack().gap(25).children(
-
-        // 1. Заголовок с хуком onMount
-        UI.text(s.viewTitle).as('h1').bold().onMount(onTitleMount),
+const AppView = () => (
+    // 1. Главный вертикальный контейнер. Он автоматически займет все пространство холста.
+    UI.stack().style({ width: '100%', height: '100%' }).children(
         
-        // 2. Панель управления с условным рендерингом (UI.if)
-        UI.row().gap(15).align('center').children(
-            UI.text("Показать панель администратора:"),
-            UI.button(s.showAdminPanel ? 'Скрыть' : 'Показать')
-              .onClick(() => s.showAdminPanel = !s.showAdminPanel)
+        // 2. Шапка: не растет, не сжимается, высота 60px
+        UI.stack().flex(0, 0, '60px').style(headerFooterStyle).children(
+            Header()
         ),
 
-        UI.if(s.showAdminPanel).then(() =>
-            UI.stack().key('admin-panel').gap(10).style({ 
-                padding: '20px', border: '1px solid #e0e0e0', 
-                borderRadius: '8px', background: '#fafafa'
-            }).children(
-                UI.text("Панель администратора").as('h3').bold(),
-                UI.input().id('admin-name-input').value(s.adminName)
-                  .onInput(e => s.adminName = e.target.value)
-                  .placeholder("Введите имя админа..."),
-                UI.text(`Текущее имя: ${s.adminName}`).small().color('#555'),
-                UI.button("Сохранить").onClick(saveAdminSettings)
+        // 3. Средняя часть: растет и занимает все оставшееся место
+        UI.row().flex(1, 1, 'auto').style({ overflow: 'hidden' }).children(
+        
+            // 4. Сайдбар: не растет, не сжимается, ширина 220px
+            UI.stack().flex(0, 0, '220px').style(sidebarStyle).children(
+                Sidebar()
+            ),
+
+            // 5. Контент: растет и занимает все оставшееся место
+            UI.stack().flex(1, 1, 'auto').style(contentStyle).children(
+                Content()
             )
         ),
-
-        // 3. Таблица пользователей с VDOM-оптимизированными действиями
-        UI.text("Таблица пользователей").as('h2').bold().style({ borderTop: '2px solid #eee', paddingTop: '20px' }),
-        UI.row().gap(10).style({ flexWrap: 'wrap' }).children(
-            UI.button("Добавить пользователя").onClick(addUser),
-            UI.button("Перемешать").onClick(shuffleUsers),
-            UI.button("Перевернуть список").onClick(reverseUsers)
-        ),
-        UI.table()
-          .headers([
-              { key: 'id', label: 'ID' }, { key: 'name', label: 'Имя' },
-              { key: 'role', label: 'Роль' }, { key: 'status', label: 'Статус' },
-              { key: 'actions', label: 'Действия' }
-          ])
-          .rows(s.users) // Привязываем к реактивному массиву
-          .renderCell((key, user) => {
-              if (key === 'status') {
-                  // Кликабельный статус для проверки точечного обновления
-                  return UI.text(user.status)
-                           .color(user.status === 'active' ? 'green' : '#999')
-                           .bold()
-                           .style({ cursor: 'pointer' })
-                           .onClick(() => updateUserStatus(user.id));
-              }
-              if (key === 'actions') {
-                  // Кнопка удаления
-                  return UI.button('Удалить')
-                           .onClick(() => removeUser(user.id))
-                           .style({ background: '#ffebee', color: '#c62828', border: 'none', padding: '8px 12px', borderRadius: '5px' });
-              }
-              return user[key];
-          }),
-
-        // 4. Гибридный компонент
-        UI.text("Гибридный компонент").as('h2').bold(),
-        UI.hybrid('uiverse-discover-button')
-          .replace('{{TEXT}}', s.hybridButtonText)
-          .on('button', 'click', () => {
-              s.hybridButtonText = 'Нажато! (' + new Date().toLocaleTimeString() + ')';
-          })
+        
+        // 6. Футер: не растет, не сжимается, высота 40px
+        UI.stack().flex(0, 0, '40px').style(headerFooterStyle).children(
+            Footer()
+        )
     )
 );
 
-// ===================
 // --- ЗАПУСК ---
-// ===================
 UI.create({
     target: document.getElementById('app'),
-    view: () => AppView(state)
+    view: () => AppView()
 });
