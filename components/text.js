@@ -12,6 +12,11 @@ TextBuilder.prototype.small = function() { this.vNode.props.style.fontSize = '0.
 TextBuilder.prototype.color = function(c) { this.vNode.props.style.color = c; return this; };
 TextBuilder.prototype.as = function(tag) { this.vNode.props.tag = tag; return this; };
 TextBuilder.prototype.style = function(styleObject) { Object.assign(this.vNode.props.style, styleObject); return this; };
+
+// --- НОВЫЕ МЕТОДЫ ---
+TextBuilder.prototype.onMount = function(handler) { this.vNode.props.onMount = handler; return this; };
+TextBuilder.prototype.onUnmount = function(handler) { this.vNode.props.onUnmount = handler; return this; };
+
 TextBuilder.prototype.toJSON = function() { return this.vNode; };
 
 module.exports = (value) => new TextBuilder(value);

@@ -9,6 +9,11 @@ function ButtonBuilder(label) {
 ButtonBuilder.prototype.onClick = function(handler) { this.vNode.props.onClick = handler; return this; };
 ButtonBuilder.prototype.style = function(styleObject) { Object.assign(this.vNode.props.style, styleObject); return this; };
 ButtonBuilder.prototype.id = function(id) { this.vNode.props.id = id; return this; };
+
+// --- НОВЫЕ МЕТОДЫ ---
+ButtonBuilder.prototype.onMount = function(handler) { this.vNode.props.onMount = handler; return this; };
+ButtonBuilder.prototype.onUnmount = function(handler) { this.vNode.props.onUnmount = handler; return this; };
+
 ButtonBuilder.prototype.toJSON = function() { return this.vNode; };
 
 module.exports = (label) => new ButtonBuilder(label);

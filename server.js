@@ -1,5 +1,4 @@
-// Файл: server.js
-// Финальная версия. Собирает обычные и гибридные компоненты в один бандл.
+// Файл: server.js (Финальная версия с исправленным join)
 
 const express = require('express');
 const fs = require('fs');
@@ -9,43 +8,37 @@ const browserify = require('browserify');
 const app = express();
 const PORT = 3000;
 
-// МАРШРУТ, КОТОРЫЙ СОБИРАЕТ И ОТДАЕТ НАШЕ ПРИЛОЖЕНИЕ
 app.get('/bundle.js', (req, res) => {
-    console.log('Запрос на /bundle.js, запускаю сборку...');
+    console.log('Запрос на /bundle.js, запускаю полную сборку...');
     res.setHeader('Content-Type', 'application/javascript');
     
-    // --- 1. Собираем код по частям в массив, чтобы избежать сложных строк ---
     const codeParts = [];
 
-    // Добавляем ядро фреймворка
+    // Добавляем ядро
     codeParts.push(`
         const { render } = require('./core/renderer.js');
         const { createReactive, createEffect } = require('./core/reactive.js'); 
-        
         const UI = {};
         UI.create = (options) => render(options.view, options.state, options.target);
         UI.createReactive = createReactive;
     `);
 
-    // --- 2. Функция для сканирования папок и добавления обычных компонентов ---
+    // Добавляем обычные компоненты
     function appendBuilders(dirPath) {
         const absolutePath = path.join(__dirname, dirPath);
         if (!fs.existsSync(absolutePath)) return;
-
         const files = fs.readdirSync(absolutePath);
         files.forEach(file => {
             if (path.extname(file) === '.js') {
                 const builderName = path.basename(file, '.js');
-                // Добавляем строку `require` для каждого компонента
                 codeParts.push(`UI.${builderName} = require('./${dirPath}/${file}');`);
             }
         });
     }
-
     appendBuilders('components');
     appendBuilders('helpers');
     
-    // --- 3. Читаем и "запекаем" данные гибридных компонентов ---
+    // Добавляем гибридные компоненты
     const hybridComponentsData = {};
     const hybridPath = path.join(__dirname, 'hybrid-components');
     if (fs.existsSync(hybridPath)) {
@@ -54,21 +47,16 @@ app.get('/bundle.js', (req, res) => {
             try {
                 const htmlPath = path.join(hybridPath, dirName, 'component.html');
                 const cssPath = path.join(hybridPath, dirName, 'component.css');
-                // Проверяем, что оба файла существуют
                 if (fs.existsSync(htmlPath) && fs.existsSync(cssPath)) {
                     hybridComponentsData[dirName] = {
                         html: fs.readFileSync(htmlPath, 'utf-8'),
                         css: fs.readFileSync(cssPath, 'utf-8')
                     };
                 }
-            } catch (e) {
-                console.error(`Ошибка при чтении гибридного компонента ${dirName}:`, e.message);
-            }
+            } catch (e) { console.error(`Ошибка чтения ${dirName}:`, e.message); }
         });
     }
     codeParts.push(`const hybridData = ${JSON.stringify(hybridComponentsData)};`);
-
-    // --- 4. Добавляем строитель гибридных компонентов, который будет работать в браузере ---
     codeParts.push(`
         UI.hybrid = function(componentName) {
             const data = hybridData[componentName];
@@ -76,16 +64,12 @@ app.get('/bundle.js', (req, res) => {
                 type: 'HybridComponent',
                 props: { componentName: componentName, replacements: {}, listeners: {} }
             };
-
             if (!data) {
-                console.error('Гибридный компонент "' + componentName + '" не найден.');
                 vNode.props.innerHTML = '<div style="border:2px solid red; padding:10px; color:red;">Компонент <strong>' + componentName + '</strong> не найден</div>';
             } else {
                 vNode.props.innerHTML = data.html;
                 vNode.props.inlineStyle = data.css;
             }
-
-            // Возвращаем полноценный объект-строитель в любом случае
             return {
                 vNode: vNode,
                 replace: function(p, v) { this.vNode.props.replacements[p] = v; return this; },
@@ -99,11 +83,12 @@ app.get('/bundle.js', (req, res) => {
         };
     `);
     
-    // --- 5. Добавляем код нашего приложения ---
+    // Добавляем app.js
     const appCode = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf-8');
     codeParts.push(`(function(UI) { ${appCode} })(UI);`);
 
-    // --- 6. Собираем всё в один бандл ---
+    // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+    // Объединяем части кода с настоящим переносом строки.
     const finalCode = codeParts.join('\n');
     
     const b = browserify();
@@ -118,7 +103,6 @@ app.get('/bundle.js', (req, res) => {
 
     bundleStream.on('error', (err) => { 
         console.error("Ошибка сборки:", err.message);
-        // Используем простую конкатенацию строк, чтобы избежать проблем с синтаксисом
         const safeErrorMessage = JSON.stringify('Ошибка сборки: ' + err.message);
         const script = 'console.error(' + safeErrorMessage + ');';
         res.status(500).send(script);
@@ -127,12 +111,10 @@ app.get('/bundle.js', (req, res) => {
     bundleStream.pipe(res);
 });
 
-// Отдаем HTML-страницу
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'test.html'));
 });
 
-// Запускаем сервер
 app.listen(PORT, () => {
     console.log(`\n✅ SlightUI Fluent DevServer запущен на http://localhost:${PORT}`);
 });
