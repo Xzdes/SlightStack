@@ -1,4 +1,4 @@
-// Файл: core/tracker.js (Версия со стеком)
+// Файл: core/tracker.js
 
 const dependencyStack = [];
 
@@ -11,7 +11,6 @@ function stopTracking() {
 }
 
 function getActiveUpdater() {
-    // Возвращаем последний элемент, не удаляя его
     return dependencyStack[dependencyStack.length - 1];
 }
 

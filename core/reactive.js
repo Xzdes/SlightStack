@@ -1,8 +1,7 @@
-// Файл: core/reactive.js (Новое ядро с эффектами)
+// Файл: core/reactive.js
 
 const tracker = require('./tracker');
 
-// depMap теперь внутри модуля, а не передается снаружи
 const depMap = new Map();
 
 function track(key) {
@@ -34,14 +33,13 @@ function createReactive(target) {
     });
 }
 
-// Новая функция для создания "слушателей"
 function createEffect(fn) {
     const effect = () => {
         tracker.startTracking(effect);
         fn();
         tracker.stopTracking();
     };
-    effect(); // Запускаем эффект в первый раз, чтобы собрать зависимости
+    effect();
 }
 
 module.exports = { createReactive, createEffect };

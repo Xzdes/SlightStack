@@ -1,21 +1,20 @@
-// Файл: app.js (Финальная, правильная версия)
+// Файл: app.js (Финальная рабочая версия)
 
 // UI передается сервером и содержит все наши строители
 const state = UI.createReactive({
-    viewTitle: "SlightUI: Демонстрация и стресс-тест",
-    showAdminPanel: false,
+    viewTitle: "SlightUI: Демонстрация VDOM",
+    showAdminPanel: true,
     adminName: "Администратор",
     users: [
         { id: 1, name: 'Анна К.', role: 'Админ', status: 'active' },
         { id: 2, name: 'Петр В.', role: 'Кассир', status: 'active' },
         { id: 3, name: 'Иван С.', role: 'Пользователь', status: 'inactive' },
     ],
-    hybridButtonText: "Кнопка из Uiverse",
+    hybridButtonText: "Кнопка из Uiverse"
 });
 
 // =======================================================
-// --- ШАГ 1: ВСЕ ОБРАБОТЧИКИ И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-// Определяем всё, что будет использоваться ниже, в одном месте.
+// --- ОБРАБОТЧИКИ И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 // =======================================================
 
 const onTitleMount = (domElement) => {
@@ -28,7 +27,7 @@ const onTitleMount = (domElement) => {
 
 const addUser = () => {
     const id = state.users.length > 0 ? Math.max(...state.users.map(u => u.id)) + 1 : 1;
-    const newUser = { id, name: `Новый пользователь ${id}`, role: 'Кассир', status: 'active' };
+    const newUser = { id, name: `Новый пользователь ${id}`, role: 'Пользователь', status: 'active' };
     state.users.push(newUser);
     state.users = [...state.users]; // Триггерим реактивность
 };
@@ -42,77 +41,60 @@ const shuffleUsers = () => {
     state.users = [...state.users];
 };
 
+const reverseUsers = () => {
+    state.users.reverse();
+    state.users = [...state.users];
+};
+
+const updateUserStatus = (userId) => {
+    const user = state.users.find(u => u.id === userId);
+    if (user) {
+        user.status = user.status === 'active' ? 'inactive' : 'active';
+        state.users = [...state.users]; // Обновляем для VDOM
+    }
+};
+
 const saveAdminSettings = () => {
     alert(`Настройки сохранены! Новое имя администратора: "${state.adminName}"`);
 };
 
-// --- ✨ Намеренные ошибки для демонстрации ✨ ---
-
-// 1. Ошибка в обработчике события
-const buggyButtonHandler = () => {
-    console.log("Эта кнопка сейчас вызовет ошибку...");
-    const undefinedObject = null;
-    undefinedObject.doSomething(); 
-};
-
-// 2. "Сломанный" компонент-строитель
-const BrokenComponent = () => ({
-    toJSON: () => {
-        throw new Error("Я компонент, который всегда ломается при рендеринге!");
-    }
-});
-
-// 3. Компонент с ошибкой в хуке onMount
-const FaultyMountComponent = () => {
-    return UI.text("Этот текст отрендерится, но в консоли будет ошибка из onMount.")
-        .color('orange')
-        .onMount(() => {
-            console.log("Попытка выполнить ошибочный onMount...");
-            document.getElementById('non-existent-element').focus();
-        });
-};
-
-
 // ===================================
-// --- ШАГ 2: ГЛАВНЫЙ ВИД ПРИЛОЖЕНИЯ ---
-// Теперь, когда все функции определены, мы можем безопасно их использовать.
+// --- ГЛАВНЫЙ ВИД ПРИЛОЖЕНИЯ ---
 // ===================================
 
 const AppView = (s) => (
-    UI.stack().gap(30).style({
-        maxWidth: '800px', margin: '40px auto', padding: '30px',
-        background: '#ffffff', borderRadius: '12px', boxShadow: '0 8px 25px rgba(0,0,0,0.1)'
-    }).children(
+    UI.stack().gap(25).children(
 
-        // 1. Стандартные компоненты
+        // 1. Заголовок с хуком onMount
         UI.text(s.viewTitle).as('h1').bold().onMount(onTitleMount),
         
-        // 2. Условный рендеринг (UI.if)
+        // 2. Панель управления с условным рендерингом (UI.if)
         UI.row().gap(15).align('center').children(
-            UI.text("Показать расширенные опции:"),
-            UI.button(s.showAdminPanel ? 'Скрыть панель' : 'Показать панель')
+            UI.text("Показать панель администратора:"),
+            UI.button(s.showAdminPanel ? 'Скрыть' : 'Показать')
               .onClick(() => s.showAdminPanel = !s.showAdminPanel)
         ),
 
-        // Панель администратора, которая теперь работает правильно
         UI.if(s.showAdminPanel).then(() =>
-            UI.stack().gap(10).style({ 
-                padding: '20px', border: '1px solid #f0f0f0', 
-                borderRadius: '8px', background: '#f9f9f9'
+            UI.stack().key('admin-panel').gap(10).style({ 
+                padding: '20px', border: '1px solid #e0e0e0', 
+                borderRadius: '8px', background: '#fafafa'
             }).children(
-                UI.text("Панель администратора").bold(),
+                UI.text("Панель администратора").as('h3').bold(),
                 UI.input().id('admin-name-input').value(s.adminName)
-                  .onInput(e => s.adminName = e.target.value),
-                UI.text(`Имя админа: ${s.adminName}`).small().color('#777'),
-                UI.button("Сохранить настройки админа").onClick(saveAdminSettings)
+                  .onInput(e => s.adminName = e.target.value)
+                  .placeholder("Введите имя админа..."),
+                UI.text(`Текущее имя: ${s.adminName}`).small().color('#555'),
+                UI.button("Сохранить").onClick(saveAdminSettings)
             )
         ),
 
-        // 3. Таблица с циклом (UI.table и UI.for)
-        UI.text("Таблица пользователей").as('h2').bold(),
-        UI.row().gap(10).children(
-            UI.button("Добавить случайного").onClick(addUser),
-            UI.button("Перемешать").onClick(shuffleUsers)
+        // 3. Таблица пользователей с VDOM-оптимизированными действиями
+        UI.text("Таблица пользователей").as('h2').bold().style({ borderTop: '2px solid #eee', paddingTop: '20px' }),
+        UI.row().gap(10).style({ flexWrap: 'wrap' }).children(
+            UI.button("Добавить пользователя").onClick(addUser),
+            UI.button("Перемешать").onClick(shuffleUsers),
+            UI.button("Перевернуть список").onClick(reverseUsers)
         ),
         UI.table()
           .headers([
@@ -120,50 +102,37 @@ const AppView = (s) => (
               { key: 'role', label: 'Роль' }, { key: 'status', label: 'Статус' },
               { key: 'actions', label: 'Действия' }
           ])
-          .rows(s.users)
+          .rows(s.users) // Привязываем к реактивному массиву
           .renderCell((key, user) => {
               if (key === 'status') {
-                  return UI.text(user.status).color(user.status === 'active' ? 'green' : '#999').bold();
+                  // Кликабельный статус для проверки точечного обновления
+                  return UI.text(user.status)
+                           .color(user.status === 'active' ? 'green' : '#999')
+                           .bold()
+                           .style({ cursor: 'pointer' })
+                           .onClick(() => updateUserStatus(user.id));
               }
               if (key === 'actions') {
-                  return UI.button('Удалить').onClick(() => removeUser(user.id))
-                           .style({ background: '#ffebee', color: '#c62828', border: 'none' });
+                  // Кнопка удаления
+                  return UI.button('Удалить')
+                           .onClick(() => removeUser(user.id))
+                           .style({ background: '#ffebee', color: '#c62828', border: 'none', padding: '8px 12px', borderRadius: '5px' });
               }
               return user[key];
           }),
-        
+
         // 4. Гибридный компонент
-        UI.text("Гибридный компонент").as('h2').bold().style({ marginTop: '20px' }),
+        UI.text("Гибридный компонент").as('h2').bold(),
         UI.hybrid('uiverse-discover-button')
           .replace('{{TEXT}}', s.hybridButtonText)
           .on('button', 'click', () => {
-              s.hybridButtonText = 'Нажато!';
-              alert('Клик по гибридной кнопке!');
-          }),
-
-        // --- Раздел для демонстрации ошибок ---
-        UI.text("Тестирование отказоустойчивости").as('h2').bold().style({ marginTop: '40px', borderTop: '2px solid #eee', paddingTop: '20px' }),
-
-        // Ошибка №1
-        UI.text("1. Ошибка в обработчике события:"),
-        UI.button("Нажми меня, чтобы сломать").onClick(buggyButtonHandler).style({ background: '#ffcdd2' }),
-
-        // Ошибка №2
-        UI.text("2. Компонент, который не может отрендериться:").style({ marginTop: '20px' }),
-        BrokenComponent(),
-        
-        // Ошибка №3
-        UI.text("3. Попытка итерации не по массиву:").style({ marginTop: '20px' }),
-        UI.for({ each: { a: 1, b: 2 }, as: (item) => UI.text(item) }),
-        
-        // Ошибка №4
-        UI.text("4. Компонент с ошибкой в хуке onMount:").style({ marginTop: '20px' }),
-        FaultyMountComponent()
+              s.hybridButtonText = 'Нажато! (' + new Date().toLocaleTimeString() + ')';
+          })
     )
 );
 
 // ===================
-// --- ШАГ 3: ЗАПУСК ---
+// --- ЗАПУСК ---
 // ===================
 UI.create({
     target: document.getElementById('app'),
