@@ -1,4 +1,4 @@
-// Файл: core/renderer.js (ПОСЛЕДНЯЯ, ПОБЕДНАЯ ВЕРСИЯ)
+// Файл: core/renderer.js (ПОСЛЕДНЯЯ, ОКОНЧАТЕЛЬНАЯ, ПОБЕДНАЯ ВЕРСИЯ)
 
 const { createEffect } = require('./reactive');
 
@@ -15,30 +15,27 @@ function normalize(node) {
         return normalize(node.toJSON());
     }
     if (Array.isArray(node)) {
-        return { type: 'Fragment', props: {}, children: node.map(normalize).flat() };
+        // --- ГЛАВНОЕ ИЗМЕНЕНИЕ №1: Фильтруем null-значения ---
+        const children = node.map(normalize).flat().filter(Boolean);
+        return { type: 'Fragment', props: {}, children: children };
     }
     if (node.children) {
-        node.children = normalize(node.children).children || [];
+        const normalized = normalize(node.children);
+        node.children = normalized ? normalized.children || [] : [];
     }
     return node;
 }
 
-/**
- * Централизованная функция размонтирования.
- */
 function unmount(vNode) {
+    if (vNode.type === 'Fragment') {
+        vNode.children.forEach(unmount);
+        return;
+    }
     if (vNode.props && vNode.props.onUnmount) {
         vNode.props.onUnmount(vNode.el);
     }
-
-    if (vNode.type === 'Fragment') {
-        vNode.children.forEach(unmount);
-        // Удаляем сами маркеры
-        vNode.el.parentNode.removeChild(vNode.el);
-        vNode.endAnchor.parentNode.removeChild(vNode.endAnchor);
-        return;
-    }
-    vNode.el.parentNode.removeChild(vNode.el);
+    const parent = vNode.el.parentNode;
+    if (parent) parent.removeChild(vNode.el);
 }
 
 function mount(vNode, container) {
@@ -48,18 +45,9 @@ function mount(vNode, container) {
     let el;
 
     if (type === 'Fragment') {
-        // --- ИЗМЕНЕНИЕ: Используем якоря-комментарии ---
-        el = document.createComment('fragment-start');
-        vNode.el = el;
-        container.appendChild(el);
-        
-        const endAnchor = document.createComment('fragment-end');
-        vNode.endAnchor = endAnchor;
-
         children.forEach(child => mount(child, container));
-        
-        container.appendChild(endAnchor);
-        return; // Фрагмент сам не является единым элементом
+        // Фрагменту не нужен свой DOM-узел, его дети монтируются напрямую в контейнер
+        return;
     } else if (type === 'text') {
         el = document.createTextNode(children[0] || '');
     } else if (type === 'HybridComponent') {
@@ -70,12 +58,11 @@ function mount(vNode, container) {
     }
     
     vNode.el = el;
-    patchProps(el, {}, props); // Применяем пропсы после монтирования детей, если нужно
+    patchProps(el, {}, props);
     if (container) container.appendChild(el);
     if (props.onMount) props.onMount(el);
 }
 
-// ... mountHybrid не меняется ...
 function mountHybrid(vNode) {
     const { props } = vNode;
     const { innerHTML, inlineStyle, replacements, listeners, componentName } = props;
@@ -118,9 +105,7 @@ function patch(n1, n2) {
     const el = n2.el = n1.el;
 
     if (n1.type === 'Fragment') {
-        // --- ИЗМЕНЕНИЕ: Правильно находим родителя и якорь ---
-        n2.endAnchor = n1.endAnchor;
-        patchChildren(el.parentNode, n1.children, n2.children, n1.endAnchor);
+        patchChildren(el, n1.children, n2.children);
         return;
     }
     if (n1.type === 'text') {
@@ -140,7 +125,6 @@ function patch(n1, n2) {
     patchChildren(el, n1.children, n2.children);
 }
 
-// ... patchProps не меняется ...
 function patchProps(el, oldProps, newProps) {
     for (const key in newProps) {
         if (key !== 'children' && newProps[key] !== oldProps[key]) {
@@ -177,8 +161,17 @@ function patchChildren(container, oldCh, newCh, anchor) {
     let oldKeyToIdx;
 
     while (oldStartIdx <= oldEndIdx && newStartIdx <= newEndIdx) {
-        if (!oldStartVNode) oldStartVNode = oldCh[++oldStartIdx];
-        else if (!oldEndVNode) oldEndVNode = oldCh[--oldEndIdx];
+        // --- ГЛАВНОЕ ИЗМЕНЕНИЕ №2: Пуленепробиваемые проверки на null ---
+        if (oldStartVNode == null) {
+            oldStartVNode = oldCh[++oldStartIdx];
+        } else if (oldEndVNode == null) {
+            oldEndVNode = oldCh[--oldEndIdx];
+        } else if (newStartVNode == null) {
+            newStartVNode = newCh[++newStartIdx];
+        } else if (newEndVNode == null) {
+            newEndVNode = newCh[--newEndIdx];
+        }
+        // ... остальной код цикла остается прежним ...
         else if (isSameVNodeType(oldStartVNode, newStartVNode)) {
             patch(oldStartVNode, newStartVNode);
             oldStartVNode = oldCh[++oldStartIdx];
@@ -213,9 +206,12 @@ function patchChildren(container, oldCh, newCh, anchor) {
         }
     }
     if (oldStartIdx > oldEndIdx) {
+        const refEl = newEndIdx + 1 < newCh.length ? newCh[newEndIdx + 1].el : anchor;
         for (let i = newStartIdx; i <= newEndIdx; i++) {
-            mount(newCh[i], container);
-            container.insertBefore(newCh[i].el, anchor);
+            if(newCh[i]) {
+                mount(newCh[i], container);
+                container.insertBefore(newCh[i].el, refEl);
+            }
         }
     } else if (newStartIdx > newEndIdx) {
         for (let i = oldStartIdx; i <= oldEndIdx; i++) {
@@ -224,12 +220,9 @@ function patchChildren(container, oldCh, newCh, anchor) {
     }
 }
 
-// ... isSameVNodeType и createKeyToOldIdx не меняются ...
 function isSameVNodeType(n1, n2) {
-    if (!n1 || !n2) return false;
-    return n1.type === n2.type && (n1.props?.key === n2.props?.key);
+    return n1.type === n2.type && n1.props?.key === n2.props?.key;
 }
-
 function createKeyToOldIdx(children, beginIdx, endIdx) {
     const map = {};
     for (let i = beginIdx; i <= endIdx; i++) {
