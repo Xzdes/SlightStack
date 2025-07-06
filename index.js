@@ -1,12 +1,22 @@
-// Файл: slightstack/index.js
+// Файл: index.js
+// Это публичный Node.js API для фреймворка SlightStack.
+// Он предоставляет утилиты для сборщиков и для продвинутого использования в Node.js-окружении.
 
 const path = require('path');
+const fs = require('fs');
+
+// Импортируем внутренние модули, API которых мы хотим экспортировать.
 const { buildUIObject } = require('./core/ui-builder.js');
+const { createReactive, createEffect } = require('./core/reactive.js');
+const { render } = require('./core/renderer.js');
+const { normalize } = require('./core/vdom.js');
+
+
+// --- API для сборщиков (Browserify, Webpack, Vite, etc.) ---
 
 /**
- * Возвращает абсолютные пути ко всем основным файлам ядра.
- * Это API для сборщиков (Browserify, Webpack, Vite), которые будут
- * использовать ваш фреймворк.
+ * Возвращает объект с абсолютными путями ко всем основным файлам ядра.
+ * Это позволяет сборщикам напрямую подключать нужные части фреймворка.
  * @returns {{renderer: string, reactive: string, vdom: string, runtimeBuilder: string}}
  */
 function getCoreFilePaths() {
@@ -19,8 +29,8 @@ function getCoreFilePaths() {
 }
 
 /**
- * Возвращает объект с информацией обо всех компонентах, найденных в проекте.
- * Ключ - имя компонента, значение - информация о нем.
+ * Сканирует проект и возвращает объект с информацией обо всех компонентах.
+ * Ключ - имя компонента, значение - информация о нем (путь, тип экспорта).
  * @returns {Object.<string, {path: string, isFunction: boolean}>}
  */
 function getComponentInfo() {
@@ -28,21 +38,21 @@ function getComponentInfo() {
     const componentInfo = {};
     for (const builderName in uiMap) {
         const absolutePath = path.resolve(__dirname, uiMap[builderName].path);
+        // Проверяем, является ли экспортируемый модуль функцией (для table.js)
+        const isFunction = typeof require(absolutePath) === 'function';
         componentInfo[builderName] = {
             path: absolutePath,
-            // Проверяем, является ли экспортируемый модуль функцией (для table.js)
-            isFunction: typeof require(absolutePath) === 'function'
+            isFunction: isFunction,
         };
     }
     return componentInfo;
 }
 
 /**
- * Возвращает данные о гибридных компонентах.
- * @returns {Object}
+ * Собирает и возвращает данные обо всех гибридных компонентах.
+ * @returns {Object.<string, {html: string, css: string}>}
  */
 function getHybridComponentData() {
-    const fs = require('fs');
     const hybridComponentsData = {};
     const hybridPath = path.resolve(__dirname, 'hybrid-components');
     if (fs.existsSync(hybridPath)) {
@@ -61,9 +71,55 @@ function getHybridComponentData() {
     return hybridComponentsData;
 }
 
+
+// --- API для продвинутого использования (например, Server-Side Rendering) ---
+
+/**
+ * Набор runtime-функций, которые могут быть полезны для выполнения
+ * кода SlightStack вне стандартного браузерного окружения.
+ */
+const runtime = {
+    /**
+     * Создает реактивный объект состояния.
+     * @see /core/reactive.js
+     */
+    createReactive,
+
+    /**
+     * Создает реактивный эффект.
+     * @see /core/reactive.js
+     */
+    createEffect,
+
+    /**
+     * Основная функция рендеринга (теоретически может рендерить в JSDOM на сервере).
+     * @see /core/renderer.js
+     */
+    render,
+
+    /**
+     * Функция нормализации, превращающая любой объект в VNode.
+     * @see /core/vdom.js
+     */
+    normalize
+};
+
+
+// --- Основной экспорт модуля ---
+
 module.exports = {
-    // Публичное API для сборщиков
-    getCoreFilePaths,
-    getComponentInfo,
-    getHybridComponentData
+    // API для сборщиков: предоставляет "чертежи" и пути
+    builderAPI: {
+        getCoreFilePaths,
+        getComponentInfo,
+        getHybridComponentData
+    },
+
+    // API для runtime: предоставляет готовые к использованию функции
+    runtimeAPI: runtime,
+
+    // Для удобства и обратной совместимости, дублируем ключевые функции на верхний уровень.
+    // Это позволит писать `const { createEffect } = require('slightstack')`
+    createEffect: runtime.createEffect,
+    createReactive: runtime.createReactive
 };
