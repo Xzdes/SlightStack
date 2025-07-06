@@ -1,11 +1,8 @@
-// Файл: core/ui-builder.js
-
-const fs = require('fs');
-const path = require('path');
+// Файл: core/ui-builder-runtime.js
 
 /**
  * Объект-прототип с общими методами для всех строителей компонентов.
- * Это позволяет избежать дублирования кода в каждом файле компонента.
+ * Этот код выполняется в браузере.
  */
 const BaseBuilder = {
     /**
@@ -24,7 +21,6 @@ const BaseBuilder = {
      * @returns {this}
      */
     style(styleObject) {
-        // Гарантируем, что props.style существует
         if (!this.vNode.props.style) {
             this.vNode.props.style = {};
         }
@@ -102,7 +98,6 @@ const BaseBuilder = {
  */
 function createBuilderFactory(componentType, defaults = {}) {
     return (...args) => {
-        // Создаем базовый VNode на основе настроек по умолчанию
         const vNode = {
             type: componentType,
             props: {
@@ -111,68 +106,13 @@ function createBuilderFactory(componentType, defaults = {}) {
             },
             children: []
         };
-        
-        // Создаем экземпляр строителя, наследуя его от BaseBuilder
         const builder = Object.create(BaseBuilder);
-        
-        // Присваиваем ему персональный vNode
         builder.vNode = vNode;
-
-        // Если у компонента есть своя логика инициализации (например, для UI.text('label'))
         if (defaults.init) {
             defaults.init.call(builder, ...args);
         }
-
         return builder;
     };
 }
 
-/**
- * Сканирует директории и собирает конфигурации всех компонентов.
- * @returns {object} Карта компонентов для использования в server.js.
- */
-function buildUIObject() {
-    const UI_MAP = {}; 
-
-    function loadBuildersFrom(dirPath) {
-        const absolutePath = path.join(__dirname, '..', dirPath);
-        if (!fs.existsSync(absolutePath)) {
-            console.warn(`[UI Builder] Директория не найдена: ${absolutePath}`);
-            return;
-        }
-
-        const files = fs.readdirSync(absolutePath);
-        
-        files.forEach(file => {
-            if (path.extname(file) === '.js') {
-                const builderName = path.basename(file, '.js');
-                const modulePath = path.join(absolutePath, file);
-                
-                // Загружаем конфигурацию компонента
-                const componentConfig = require(modulePath);
-
-                // Преобразуем имя 'row' в 'Row', 'button' в 'Button' и т.д.
-                const componentType = builderName.charAt(0).toUpperCase() + builderName.slice(1);
-
-                UI_MAP[builderName] = {
-                    // Создаем фабрику для этого компонента
-                    factory: createBuilderFactory(componentType, componentConfig.defaults),
-                    // Сохраняем уникальные методы этого компонента
-                    methods: componentConfig.methods || {},
-                    // Сохраняем путь для Browserify
-                    path: `./${dirPath}/${file}`
-                };
-            }
-        });
-    }
-
-    loadBuildersFrom('components');
-    loadBuildersFrom('helpers');
-
-    return UI_MAP;
-}
-
-module.exports = {
-    buildUIObject,
-    BaseBuilder
-};
+module.exports = { createBuilderFactory };

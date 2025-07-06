@@ -3,8 +3,6 @@
 const { createEffect } = require('./reactive');
 const { normalize } = require('./vdom');
 
-// --- 1. Жизненный цикл: Монтирование, Обновление, Размонтирование ---
-
 function mount(vNode, container) {
     if (!vNode) return;
 
@@ -17,7 +15,6 @@ function mount(vNode, container) {
         return;
     } 
     if (type === 'text') {
-        // ИЗМЕНЕНИЕ: Текст теперь хранится напрямую в `children` как строка.
         el = document.createTextNode(vNode.children || '');
     } else if (type === 'HybridComponent') {
         el = mountHybrid(vNode);
@@ -60,15 +57,17 @@ function patch(n1, n2) {
         return;
     }
     if (n1.type === 'text') {
-        // ИЗМЕНЕНИЕ: Сравниваем и обновляем текст напрямую.
         if (n1.children !== n2.children) {
             el.textContent = n2.children;
         }
         return;
     }
     if (n1.type === 'HybridComponent') {
+        // Гибридные компоненты пока обновляем полностью при смене props
         if (JSON.stringify(n1.props) !== JSON.stringify(n2.props)) {
-            const parent = el.parentNode; unmount(n1); mount(n2, parent);
+            const parent = el.parentNode; 
+            unmount(n1); 
+            mount(n2, parent);
         }
         return;
     }
@@ -77,16 +76,17 @@ function patch(n1, n2) {
     patchChildren(el, n1.children, n2.children);
 }
 
-// --- 2. Вспомогательные функции для обновления ---
-
 function patchProps(el, oldProps, newProps) {
     if (oldProps === newProps) return;
     oldProps = oldProps || {};
     newProps = newProps || {};
+
     for (const key in newProps) {
-        if (key === 'children' || key === 'key' || key === 'ref') continue;
+        if (key === 'children' || key === 'key' || key === 'ref' || key === 'tag') continue;
+        
         const oldValue = oldProps[key];
         const newValue = newProps[key];
+
         if (newValue !== oldValue) {
             if (key.startsWith('on')) {
                 const eventName = key.slice(2).toLowerCase();
@@ -97,16 +97,30 @@ function patchProps(el, oldProps, newProps) {
                 for (const styleKey in oldValue) { if (!(styleKey in newValue)) { el.style[styleKey] = ''; } }
             } else if (key === 'value' || key === 'checked') {
                 if (el[key] !== newValue) el[key] = newValue;
-            } else if (key !== 'tag') {
+            } else if (key === 'attrs') { // <-- НОВОЕ: Обработка data-атрибутов
+                for (const attrKey in newValue) { el.setAttribute(attrKey, newValue[attrKey]); }
+                if (oldValue) {
+                    for (const attrKey in oldValue) { if (!(attrKey in newValue)) { el.removeAttribute(attrKey); } }
+                }
+            } else {
                 if (newValue == null || newValue === false) el.removeAttribute(key);
                 else el.setAttribute(key, newValue);
             }
         }
     }
+
     for (const key in oldProps) {
-        if (key === 'children' || key === 'key' || key === 'ref' || key in newProps) continue;
-        if (key.startsWith('on')) el.removeEventListener(key.slice(2).toLowerCase(), oldProps[key]);
-        else if (key !== 'tag') el.removeAttribute(key);
+        if (key === 'children' || key === 'key' || key === 'ref' || key === 'tag' || key in newProps) continue;
+        
+        if (key.startsWith('on')) {
+            el.removeEventListener(key.slice(2).toLowerCase(), oldProps[key]);
+        } else if (key === 'attrs') { // <-- НОВОЕ: Удаление старых data-атрибутов
+             for (const attrKey in oldProps[key]) {
+                 el.removeAttribute(attrKey);
+             }
+        } else {
+            el.removeAttribute(key);
+        }
     }
 }
 
@@ -156,9 +170,6 @@ function patchChildren(container, oldCh, newCh) {
 function isSameVNodeType(n1, n2) { return n1.type === n2.type && n1.props?.key === n2.props?.key; }
 function createKeyToOldIdx(children, beginIdx, endIdx) { const map = {}; for (let i = beginIdx; i <= endIdx; i++) { const child = children[i]; if (child && child.props && child.props.key != null) map[child.props.key] = i; } return map; }
 function mountHybrid(vNode) { const { props } = vNode; const { innerHTML, inlineStyle, replacements, listeners, componentName } = props; const styleId = `hybrid-style-${componentName}`; if (inlineStyle && !document.getElementById(styleId)) { const styleEl = document.createElement('style'); styleEl.id = styleId; styleEl.textContent = inlineStyle; document.head.appendChild(styleEl); } const tempContainer = document.createElement('div'); let finalHTML = innerHTML || ''; if (replacements) { for (const placeholder in replacements) { finalHTML = finalHTML.replace(new RegExp(placeholder.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1"), 'g'), String(replacements[placeholder])); } } tempContainer.innerHTML = finalHTML; const rootHybridEl = tempContainer.firstElementChild; if (rootHybridEl && listeners) { for (const selector in listeners) { const targetElement = selector === 'root' ? rootHybridEl : rootHybridEl.querySelector(selector); if (targetElement) { for (const event in listeners[selector]) targetElement.addEventListener(event, listeners[selector][event]); } } } return rootHybridEl || document.createComment(`hybrid-placeholder-${componentName}`); }
-
-
-// --- 3. Точка входа в рендерер ---
 
 function render(viewFn, targetElement) {
     let oldVNode = null;

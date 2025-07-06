@@ -1,104 +1,63 @@
 // Файл: components/button.js
 
-/**
- * Строитель для компонента "Кнопка".
- * @param {string} label - Текст, который будет отображаться на кнопке.
- */
-function ButtonBuilder(label = '') {
-    this.vNode = {
-        type: 'Button',
-        props: {
-            tag: 'button',
-            style: {}
+module.exports = {
+    /**
+     * Настройки по умолчанию для компонента "Кнопка".
+     */
+    defaults: {
+        tag: 'button',
+        style: {
+            /* 
+               Стили по умолчанию можно вынести сюда для консистентности,
+               например: padding, border, cursor и т.д.
+               padding: '8px 16px',
+               border: '1px solid #ccc',
+               borderRadius: '4px',
+               cursor: 'pointer'
+            */
         },
-        children: [label] // Текст кнопки теперь всегда является дочерним элементом
-    };
-}
+        /**
+         * Функция инициализации. Вызывается при создании строителя.
+         * Принимает текст для кнопки: UI.button('Click me').
+         * @param {string} label - Текст, который будет отображаться на кнопке.
+         */
+        init: function(label = '') {
+            this.vNode.children = [label];
+        }
+    },
 
-// --- Методы для настройки ---
+    /**
+     * Уникальные методы, специфичные только для компонента "Кнопка".
+     */
+    methods: {
+        /**
+         * Устанавливает обработчик события 'click'.
+         * @param {Function} handler - Функция, которая будет вызвана при клике.
+         * @returns {this}
+         */
+        onClick: function(handler) {
+            this.vNode.props.onClick = handler;
+            return this;
+        },
 
-/**
- * Устанавливает обработчик события 'click'.
- * @param {Function} handler - Функция, которая будет вызвана при клике.
- * @returns {ButtonBuilder} this для цепочки вызовов.
- */
-ButtonBuilder.prototype.onClick = function(handler) {
-    this.vNode.props.onClick = handler;
-    return this;
+        /**
+         * Устанавливает HTML-атрибут 'id'.
+         * @param {string} id - Уникальный идентификатор элемента.
+         * @returns {this}
+         */
+        id: function(id) {
+            this.vNode.props.id = id;
+            return this;
+        },
+
+        /**
+         * Устанавливает HTML-атрибут 'disabled'.
+         * @param {boolean} isDisabled - Если true, кнопка будет неактивна.
+         * @returns {this}
+         */
+        disabled: function(isDisabled = true) {
+            this.vNode.props.disabled = isDisabled;
+            return this;
+        }
+    }
 };
-
-/**
- * Добавляет или перезаписывает стили для элемента.
- * @param {object} styleObject - Объект со стилями (e.g., { color: 'red' }).
- * @returns {ButtonBuilder} this для цепочки вызовов.
- */
-ButtonBuilder.prototype.style = function(styleObject) {
-    Object.assign(this.vNode.props.style, styleObject);
-    return this;
-};
-
-/**
- * Устанавливает HTML-атрибут 'id'.
- * @param {string} id - Уникальный идентификатор элемента.
- * @returns {ButtonBuilder} this для цепочки вызовов.
- */
-ButtonBuilder.prototype.id = function(id) {
-    this.vNode.props.id = id;
-    return this;
-};
-
-
-// --- НОВЫЕ МЕТОДЫ (УЛУЧШЕНИЯ ЯДРА) ---
-
-/**
- * Устанавливает уникальный ключ для элемента, используемый VDOM для оптимизации.
- * Обязателен для элементов в списках, создаваемых через UI.for.
- * @param {string|number} keyValue - Уникальный ключ.
- * @returns {ButtonBuilder} this для цепочки вызовов.
- */
-ButtonBuilder.prototype.key = function(keyValue) {
-    this.vNode.props.key = keyValue;
-    return this;
-};
-
-/**
- * Привязывает объект-ссылку для получения прямого доступа к DOM-элементу.
- * @param {object} refObject - Объект вида { current: null }.
- * @returns {ButtonBuilder} this для цепочки вызовов.
- */
-ButtonBuilder.prototype.ref = function(refObject) {
-    this.vNode.props.ref = refObject;
-    return this;
-};
-
-/**
- * Устанавливает хук, который будет вызван после монтирования элемента в DOM.
- * @param {Function} handler - Функция, принимающая DOM-элемент в качестве аргумента.
- * @returns {ButtonBuilder} this для цепочки вызовов.
- */
-ButtonBuilder.prototype.onMount = function(handler) {
-    this.vNode.props.onMount = handler;
-    return this;
-};
-
-/**
- * Устанавливает хук, который будет вызван перед размонтированием элемента из DOM.
- * @param {Function} handler - Функция, принимающая DOM-элемент в качестве аргумента.
- * @returns {ButtonBuilder} this для цепочки вызовов.
- */
-ButtonBuilder.prototype.onUnmount = function(handler) {
-    this.vNode.props.onUnmount = handler;
-    return this;
-};
-
-// --- Финальный метод ---
-
-/**
- * Возвращает "сырой" VNode объект для рендерера.
- * @returns {object} VNode.
- */
-ButtonBuilder.prototype.toJSON = function() {
-    return this.vNode;
-};
-
-module.exports = (label) => new ButtonBuilder(label);

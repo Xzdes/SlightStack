@@ -1,16 +1,24 @@
-// Файл: core/vdom.js (ПОСЛЕДНЯЯ, САМАЯ ВЕРНАЯ ВЕРСИЯ)
+// Файл: core/vdom.js
 
+/**
+ * Создает VNode для текстового узла.
+ * @param {string|number} text - Содержимое текстового узла.
+ * @returns {object} VNode.
+ */
 function createTextVNode(text) {
-    // Текстовый узел - это особый тип. Его "ребенок" - это всегда строка.
     return {
         type: 'text',
         props: {},
-        children: String(text) // children здесь - строка.
+        children: String(text) // children здесь - это всегда строка.
     };
 }
 
+/**
+ * Создает VNode для фрагмента. Фрагмент - это контейнер без DOM-узла.
+ * @param {Array<object>} children - Массив дочерних VNode.
+ * @returns {object} VNode.
+ */
 function createFragmentVNode(children = []) {
-    // Фрагмент хранит массив других VNode.
     return {
         type: 'Fragment',
         props: {},
@@ -18,45 +26,57 @@ function createFragmentVNode(children = []) {
     };
 }
 
+/**
+ * Рекурсивная функция нормализации.
+ * Преобразует любое значение в стандартизированный VNode или null.
+ * @param {*} node - Входное значение (строка, число, массив, строитель, VNode).
+ * @returns {object|null} Нормализованный VNode или null.
+ */
 function normalize(node) {
+    // Шаг 1: Отсеиваем пустые значения.
     if (node === null || node === undefined || typeof node === 'boolean') {
         return null;
     }
 
+    // Шаг 2: Примитивы преобразуем в текстовые VNode.
     if (typeof node === 'string' || typeof node === 'number') {
         return createTextVNode(node);
     }
     
+    // Шаг 3: Если у объекта есть метод .toJSON(), это наш строитель.
+    // Вызываем его, чтобы получить VNode, и нормализуем результат рекурсивно.
     if (typeof node.toJSON === 'function') {
         return normalize(node.toJSON());
     }
 
+    // Шаг 4: Массивы преобразуем во фрагменты.
+    // Рекурсивно нормализуем каждый элемент и отфильтровываем null.
     if (Array.isArray(node)) {
         return createFragmentVNode(node.map(normalize).filter(Boolean));
     }
 
+    // Шаг 5: Обрабатываем уже существующие VNode или объекты, похожие на них.
     if (typeof node === 'object' && node.type) {
-        // Рекурсивно "разворачиваем" компонент-функцию
+        // Если тип - это функция, это пользовательский компонент (например, UI.component(UserCard, ...)).
+        // Выполняем его, чтобы получить VNode, и нормализуем результат.
         if (typeof node.type === 'function') {
             const propsWithChildren = { ...node.props, children: node.children };
             const resolvedNode = node.type(propsWithChildren);
-            return normalize(resolvedNode); // Возвращаем результат нормализации вызова компонента
+            return normalize(resolvedNode);
         }
 
-        // --- ГЛАВНОЕ ИЗМЕНЕНИЕ ---
-        // Для всех остальных узлов (тип - строка), мы обрабатываем их детей.
-        // `children` может быть чем угодно: строкой, числом, другим строителем, массивом.
-        // Мы просто передаем его в `normalize` и позволяем рекурсии сделать свою работу.
+        // Для всех остальных VNode (тип - строка, например 'Row', 'Button')
+        // мы рекурсивно нормализуем их дочерние элементы.
         const normalizedChildren = normalize(node.children);
 
-        // `normalize` вернет либо null, либо VNode (текстовый или фрагмент).
         if (!normalizedChildren) {
+            // Если детей нет, возвращаем пустой массив.
             node.children = [];
         } else if (normalizedChildren.type === 'Fragment') {
-            // Если дети обернуты во фрагмент, нам нужен сам массив детей.
+            // Если дети обернуты во фрагмент, нам нужен сам массив детей, а не фрагмент.
             node.children = normalizedChildren.children;
         } else {
-            // Если это один текстовый узел или другой, оборачиваем в массив.
+            // Если это один узел (текстовый или другой), оборачиваем его в массив.
             node.children = [normalizedChildren];
         }
         
