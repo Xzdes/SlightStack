@@ -1,7 +1,7 @@
 {
-  "name": "slight-ui",
+  "name": "slightstack",
   "version": "1.0.0",
-  "description": "Интуитивный JavaScript-фреймворк для быстрого UI.",
+  "description": "Интуитивный JavaScript-фреймворк для быстрого UI, основанный на компоновке через stack и row.",
   "main": "index.js",
   "files": [
     "components",
@@ -15,10 +15,11 @@
     "start:demo": "node demo/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "Xzdes",
-  "license": "MIT",
+  "keywords": ["ui", "framework", "vdom", "reactive", "stack", "fluent"],
+  "author": "Your Name",
+  "license": "ISC",
   "devDependencies": {
     "browserify": "^17.0.1",
-    "express": "^5.1.0" 
+    "express": "^4.19.2"
   }
 }

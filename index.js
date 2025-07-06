@@ -1,4 +1,4 @@
-// Файл: slight-ui/index.js
+// Файл: slightstack/index.js
 
 const path = require('path');
 const { buildUIObject } = require('./core/ui-builder.js');
