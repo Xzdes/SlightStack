@@ -1,0 +1,27 @@
+# Файлы конфигурации IDE и системы
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Логи и зависимости
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Папка с демо-приложением.
+# Пользователям нашего пакета не нужно ее скачивать.
+/demo
+
+# Временные файлы сборщика
+/core/_temp_entry.js
+
+# Файлы контроля версий
+.git/
+.gitignore
+
+# Файлы конфигурации менеджеров пакетов
+package-lock.json
+yarn.lock
