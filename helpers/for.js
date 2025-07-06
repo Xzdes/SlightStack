@@ -1,60 +1,42 @@
-// Файл: helpers/for.js
+// Файл: helpers/for.js (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 
-/**
- * Логический компонент для рендеринга списков.
- * Он не создает DOM-элемент сам, а возвращает Фрагмент с дочерними элементами.
- * @param {object} props - Свойства для рендеринга списка.
- * @param {Array} props.each - Массив данных для итерации.
- * @param {string} props.key - Имя поля в объекте массива, которое будет использоваться как уникальный ключ.
- * @param {Function} props.as - Функция-рендер, которая вызывается для каждого элемента массива и должна возвращать строитель (e.g., UI.text()).
- * @returns {object} VNode типа 'Fragment' с дочерними элементами списка.
- */
 function For(props) {
   const { each: items, key: keyName, as: renderFn } = props;
   
-  // --- УЛУЧШЕНИЕ: Добавляем проверки на входе для надежности ---
   if (!Array.isArray(items)) {
-    console.error('[SlightUI] Свойство "each" в компоненте UI.for должно быть массивом. Получено:', items);
-    // Возвращаем пустой Фрагмент, чтобы приложение не упало.
+    console.error('[SlightUI] "each" в UI.for должен быть массивом.');
     return { type: 'Fragment', props: {}, children: [] };
   }
   if (typeof renderFn !== 'function') {
-    console.error('[SlightUI] Свойство "as" в компоненте UI.for должно быть функцией. Получено:', renderFn);
+    console.error('[SlightUI] "as" в UI.for должен быть функцией.');
     return { type: 'Fragment', props: {}, children: [] };
   }
   if (!keyName) {
-      console.error('[SlightUI] Свойство "key" является обязательным для компонента UI.for.');
+      console.error('[SlightUI] "key" является обязательным для UI.for.');
       return { type: 'Fragment', props: {}, children: [] };
   }
 
-  // Создаем дочерние VNodes, применяя функцию-рендер к каждому элементу данных.
   const children = items.map((item, index) => {
-    // Вызываем функцию-рендер, переданную пользователем
+    // Вызываем функцию-рендер, она вернет строитель
     const builder = renderFn(item, index);
     
-    // "Разворачиваем" строитель в "сырой" VNode
-    const vNode = builder && typeof builder.toJSON === 'function' ? builder.toJSON() : builder;
-
-    // --- УЛУЧШЕНИЕ: Автоматическое применение ключа, если он не был задан вручную ---
-    // Это делает код пользователя чище и защищает от ошибок.
-    if (vNode && vNode.props) {
-        // Получаем значение ключа из текущего элемента данных
+    // --- ИЗМЕНЕНИЕ: Упрощаем логику ---
+    // Проверяем, что это действительно строитель, и применяем ключ
+    if (builder && typeof builder.key === 'function') {
         const keyValue = item[keyName];
-        
         if (keyValue === undefined) {
              console.warn(`[SlightUI] Ключ "${keyName}" не найден в элементе списка:`, item);
         }
-
-        // Если у VNode еще нет ключа, устанавливаем его.
-        if (vNode.props.key === undefined) {
-            vNode.props.key = keyValue;
-        }
+        // Вызываем метод .key() самого строителя.
+        // Это более надежно, чем пытаться записать в props напрямую.
+        builder.key(keyValue);
+    } else {
+        console.warn('[SlightUI] Функция "as" в UI.for не вернула компонент-строитель.', builder);
     }
 
-    return vNode;
+    return builder; // Возвращаем сам строитель, normalize разберется с ним
   });
 
-  // Возвращаем финальный VNode типа 'Fragment', который содержит все сгенерированные дочерние элементы.
   return {
       type: 'Fragment',
       props: {},

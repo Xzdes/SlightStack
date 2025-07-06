@@ -1,4 +1,4 @@
-// Файл: server.js (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+// Файл: server.js (Финальная версия с поддержкой расширений)
 
 const express = require('express');
 const fs = require('fs');
@@ -17,10 +17,10 @@ app.get('/bundle.js', (req, res) => {
         const codeParts = [];
 
         // --- 1. Инициализация ядра SlightUI ---
+        // Этот блок остается прежним.
         codeParts.push(`
             const { render } = require('./core/renderer.js');
-            const { createReactive, createEffect } = require('./core/reactive.js'); 
-            
+            const { createReactive } = require('./core/reactive.js'); 
             const UI = {};
             UI.create = (options) => {
                 if (!options.target || !options.view) {
@@ -31,18 +31,66 @@ app.get('/bundle.js', (req, res) => {
             UI.createReactive = createReactive;
         `);
 
-        // --- 2. Динамическое подключение компонентов-строителей ---
+        // --- 2. Код для расширений (виртуальный файл extensions.js) ---
+        // Мы добавляем этот код как строку, чтобы он был доступен в бандле.
+        const extensionsCode = `
+            function applyExtensions(builderInstance, builderName) {
+                // Расширение 1: Двустороннее связывание для input
+                if (builderName === 'input') {
+                    builderInstance.model = function(stateObject, propertyName) {
+                        if (stateObject[propertyName] === undefined) {
+                            console.warn('[SlightUI.model] Свойство "' + propertyName + '" не найдено в объекте состояния.');
+                        }
+                        const propType = this.vNode.props.type === 'checkbox' ? 'checked' : 'value';
+                        this.vNode.props[propType] = stateObject[propertyName];
+                        
+                        this.onInput(e => {
+                            const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+                            stateObject[propertyName] = value;
+                        });
+                        return this;
+                    };
+                }
+                // Здесь можно будет добавлять другие расширения в будущем...
+            }
+        `;
+        codeParts.push(extensionsCode);
+
+
+        // --- 3. Динамическое подключение компонентов и их "патчинг" ---
         const { buildUIObject } = require('./core/ui-builder.js');
-        const uiComponentMap = buildUIObject(); // Получаем карту { button: { module, path }, ... }
+        const uiComponentMap = buildUIObject();
         
-        // ИСПРАВЛЕНИЕ ЗДЕСЬ: Используем готовый путь из карты
         for (const builderName in uiComponentMap) {
             const componentData = uiComponentMap[builderName];
-            // Теперь путь абсолютно корректный
-            codeParts.push(`UI.${builderName} = require('${componentData.path}');`);
+            codeParts.push(`const ${builderName}Builder = require('${componentData.path}');`);
+
+            // Создаем обертку, которая вызывает applyExtensions
+            codeParts.push(`
+                UI.${builderName} = (...args) => {
+                    const builder = ${builderName}Builder(...args);
+                    applyExtensions(builder, '${builderName}');
+                    return builder;
+                };
+            `);
         }
         
-        // --- 3. Подключение гибридных компонентов (без изменений) ---
+        // --- 4. Добавляем новый синтаксис для вызова компонентов с props ---
+        codeParts.push(`
+            UI.component = (comp, props, ...children) => {
+                // --- ИЗМЕНЕНИЕ: Оборачиваем VNode в объект-строитель ---
+                const vNode = { type: comp, props: props || {}, children };
+                return {
+                    vNode: vNode,
+                    // Добавляем ключевые методы, чтобы UI.for и другие могли с ним работать
+                    key: function(k) { this.vNode.props.key = k; return this; },
+                    ref: function(r) { this.vNode.props.ref = r; return this; },
+                    toJSON: function() { return this.vNode; }
+                };
+            };
+        `);
+
+        // --- 5. Подключение гибридных компонентов (без существенных изменений) ---
         const hybridComponentsData = {};
         const hybridPath = path.join(__dirname, 'hybrid-components');
         if (fs.existsSync(hybridPath)) {
@@ -58,59 +106,39 @@ app.get('/bundle.js', (req, res) => {
             });
         }
         codeParts.push(`const hybridData = ${JSON.stringify(hybridComponentsData)};`);
-
-// Файл: server.js (ТОЛЬКО ФРАГМЕНТ UI.hybrid)
-// ... остальной код сервера без изменений ...
-
         codeParts.push(`
-            UI.hybrid = function(componentName) {
+            const hybridBuilder = function(componentName) {
                 const data = hybridData[componentName];
-                const vNode = {
-                    type: 'HybridComponent',
-                    props: { 
-                        componentName: componentName, 
-                        replacements: {}, 
-                        listeners: {},
-                        ref: null,
-                        onMount: null,
-                        onUnmount: null,
-                    }
-                };
-
+                const vNode = { type: 'HybridComponent', props: { componentName: componentName, replacements: {}, listeners: {}, ref: null, onMount: null, onUnmount: null } };
                 if (!data) {
                     console.error('[SlightUI] Гибридный компонент "' + componentName + '" не найден.');
-                    vNode.props.innerHTML = '<div style="border:2px solid red; padding:10px; color:red;">Компонент <strong>' + componentName + '</strong> не найден</div>';
+                    vNode.props.innerHTML = '<div style="border:2px solid red; padding:10px;">...</div>';
                 } else {
                     vNode.props.innerHTML = data.html;
                     vNode.props.inlineStyle = data.css;
                 }
-
                 return {
                     vNode: vNode,
-                    // ИСПРАВЛЕНИЕ: Теперь метод replace принимает плейсхолдер (например, 'TEXT')
-                    // и сам оборачивает его в {{...}} для поиска и замены.
-                    replace: function(placeholder, value) { 
-                        this.vNode.props.replacements['{{' + placeholder + '}}'] = value; 
-                        return this; 
-                    },
-                    on: function(selector, event, handler) { 
-                        if (!this.vNode.props.listeners[selector]) this.vNode.props.listeners[selector] = {};
-                        this.vNode.props.listeners[selector][event] = handler; return this; 
-                    },
-                    ref: function(refObj) { this.vNode.props.ref = refObj; return this; },
+                    replace: function(p, v) { this.vNode.props.replacements['{{' + p + '}}'] = v; return this; },
+                    on: function(s, e, h) { if (!this.vNode.props.listeners[s]) this.vNode.props.listeners[s] = {}; this.vNode.props.listeners[s][e] = h; return this; },
+                    ref: function(r) { this.vNode.props.ref = r; return this; },
                     onMount: function(h) { this.vNode.props.onMount = h; return this; },
                     onUnmount: function(h) { this.vNode.props.onUnmount = h; return this; },
                     toJSON: function() { return this.vNode; }
                 };
             };
+            UI.hybrid = (...args) => {
+                const builder = hybridBuilder(...args);
+                applyExtensions(builder, 'hybrid');
+                return builder;
+            }
         `);
-// ... остальной код сервера без изменений ...
         
-        // --- 4. Добавляем код приложения (без изменений) ---
+        // --- 6. Добавляем код приложения ---
         const appCode = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf-8');
         codeParts.push(`(function(UI) { \n${appCode}\n })(UI);`);
 
-        // --- 5. Сборка (без изменений) ---
+        // --- 7. Сборка через Browserify ---
         const finalCode = codeParts.join('\n\n');
         
         const b = browserify();
@@ -126,7 +154,6 @@ app.get('/bundle.js', (req, res) => {
         bundleStream.on('error', (err) => { 
             console.error("[Server] Ошибка сборки Browserify:", err.message);
             const errorMessage = `console.error('[SlightUI Build Error]', \`${err.message.replace(/`/g, "'")}\\n\\n${err.stack.replace(/`/g, "'")}\`);`;
-            // Важно: проверяем, не был ли уже отправлен ответ
             if (!res.headersSent) {
                 res.status(500).send(errorMessage);
             }
@@ -142,12 +169,10 @@ app.get('/bundle.js', (req, res) => {
     }
 });
 
-// Отдаем главный HTML файл
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'test.html'));
 });
 
-// Запускаем сервер
 app.listen(PORT, () => {
     console.log(`\n✅ SlightUI Fluent DevServer запущен на http://localhost:${PORT}`);
     console.log('   Обновите страницу в браузере, чтобы запустить пересборку.');
