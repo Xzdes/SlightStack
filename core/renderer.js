@@ -15,7 +15,7 @@ function mount(vNode, container) {
     
     if (vNode.type === 'HybridComponent' && vNode.props.listeners) { 
         for (const selector in vNode.props.listeners) { 
-            const elements = selector === 'root' ? [el] : el.querySelectorAll(selector); 
+            const elements = selector === 'root' ? [vNode.el] : vNode.el.querySelectorAll(selector); 
             elements.forEach(targetEl => { 
                 for (const eventName in vNode.props.listeners[selector]) { 
                     const handler = vNode.props.listeners[selector][eventName]; 
@@ -28,12 +28,12 @@ function mount(vNode, container) {
     if (el.nodeType === 1 || el.nodeType === 11) {
         const children = vNode.resolvedProps?.children || vNode.children;
         if (children && children.length > 0) {
-            const mountContainer = vNode.type === 'Fragment' ? container : (el.querySelector('[data-slight-slot]') || el);
+            const mountContainer = vNode.type === 'Fragment' ? container : (vNode.el.querySelector('[data-slight-slot]') || vNode.el);
             children.forEach(child => mount(child, mountContainer));
         }
     }
-    if (container && vNode.type !== 'Fragment') container.appendChild(el);
-    if (vNode.props?.ref) vNode.props.ref.current = el;
+    if (container && vNode.type !== 'Fragment') container.appendChild(vNode.el);
+    if (vNode.props?.ref) vNode.props.ref.current = vNode.el;
 }
 
 function unmount(vNode) {
@@ -68,40 +68,31 @@ function shallowEqual(objA, objB) {
 }
 
 function patch(n1, n2) {
-    if (!n1 || !n2) return;
-    
-    // [КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ]
-    // Если типы узлов не совпадают, мы должны их полностью заменить.
-    if (n1.type !== n2.type || (n1.props?.tag && n1.props.tag !== n2.props.tag)) {
-        // Находим родительский DOM-узел, даже для фрагментов.
-        // Для обычного узла это n1.el.parentNode.
-        // Для фрагмента это родитель его первого дочернего элемента.
-        const parent = n1.type === 'Fragment' 
-            ? n1.children[0]?.el?.parentNode
-            : n1.el?.parentNode;
-
-        if (parent) {
-            unmount(n1);
-            mount(n2, parent);
-        } else {
-             console.error('[SlightUI] Не удалось найти родительский узел для замены.', n1);
+    if (n1 === n2) return;
+    if (n1 && n2 && !isSameVNodeType(n1, n2)) {
+        // [ИСПРАВЛЕНИЕ] Правильно находим родителя для замены.
+        const anchor = n1.el.nextSibling;
+        const parent = n1.el.parentNode;
+        unmount(n1);
+        mount(n2, parent);
+        // Если был якорь, вставляем перед ним, чтобы сохранить порядок
+        if (anchor) {
+            parent.insertBefore(n2.el, anchor);
         }
         return;
     }
-    
-    // Если мы здесь, типы совпадают.
-    // Обрабатываем фрагменты отдельно.
+
+    // Здесь типы гарантированно совпадают, либо n1/n2 null
+    if (!n1 || !n2) return;
+
     if (n1.type === 'Fragment') {
-        // У фрагмента нет своего `el`, поэтому мы не можем его передать.
-        // Мы просто патчим его детей в их общем контейнере.
         const container = n1.children[0]?.el.parentNode;
         if (container) {
             patchChildren(container, n1.children, n2.children);
         }
-        return; // Завершаем обработку для фрагментов
+        return;
     }
     
-    // Для всех остальных типов узлов (у которых есть `el`)
     const el = (n2.el = n1.el);
 
     if (n1._internal) {
@@ -115,7 +106,9 @@ function patch(n1, n2) {
     
     const oldCh = n1.resolvedProps?.children || [];
     const newCh = n2.resolvedProps?.children || [];
-    const container = el.querySelector('[data-slight-slot]') || el;
+    const container = n1.type === 'Fragment' 
+        ? (n1.children[0]?.el.parentNode || n2.children[0]?.el.parentNode)
+        : (el.querySelector('[data-slight-slot]') || el);
 
     if (container) {
         patchChildren(container, oldCh, newCh);

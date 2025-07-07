@@ -4,6 +4,7 @@ const { resolveProps } = require('./props-resolver.js');
 const { stateContainer } = require('./state-manager.js');
 
 function createDOMElement(vnode) {
+    // Создаем "пустой" каркас, вся логика будет в applyProps.
     if (vnode.type === 'HybridComponent') {
         const tempContainer = document.createElement('div');
         const rawHTML = (vnode.props.innerHTML || '').replace(/{{SLOT}}/g, '<div data-slight-slot></div>');
@@ -30,30 +31,18 @@ function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
         return;
     }
     
-    if (vnode.type === 'GenericTextElement' && newProps.text !== undefined) {
-        if (el.textContent !== String(newProps.text)) {
-            el.textContent = String(newProps.text);
-        }
-    }
-    
-    if (vnode.type === 'HybridComponent') {
-        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
-        let node;
-        while(node = walker.nextNode()) {
-            const placeholderMatch = node.nodeValue.match(/{{([A-Z_]+)}}/);
-            if (placeholderMatch) {
-                const propKey = placeholderMatch[1].toLowerCase();
-                const newValue = newProps[propKey];
-                if (newValue !== undefined && node.nodeValue !== String(newValue)) {
-                    node.nodeValue = String(newValue);
-                }
-            }
-        }
+    // [КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ]
+    // Мы больше не используем сложный TreeWalker.
+    // Если есть проп 'text', мы просто устанавливаем textContent элемента.
+    // Это корректно заменит плейсхолдер {{TEXT}} для кнопок и контент для UI.text().
+    if (newProps.text !== undefined && el.textContent !== String(newProps.text)) {
+        el.textContent = String(newProps.text);
     }
 
     const allProps = { ...oldProps, ...newProps };
     for (const key in allProps) {
-        if (IS_INTERNAL(key) || key.toLowerCase() === 'text') continue;
+        // 'text' уже обработан, пропускаем.
+        if (IS_INTERNAL(key) || key === 'text') continue;
 
         const oldValue = oldProps[key];
         const newValue = newProps[key];
@@ -89,6 +78,7 @@ function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
 function applyProps(el, vnode, oldResolvedProps = {}) {
     if (!vnode) return;
     
+    // Этот вызов здесь ОСТАЕТСЯ, так как он нужен для patch
     applyPlainProps(el, oldResolvedProps, vnode.resolvedProps, vnode);
 }
 
