@@ -1,0 +1,18 @@
+.slight-button {
+  padding: 8px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background-color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.slight-button:hover {
+  background-color: #f9fafb;
+  border-color: #9ca3af;
+}
+.slight-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

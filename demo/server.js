@@ -1,143 +1,113 @@
 // Файл: demo/server.js
-// Исправленная версия с экранированием путей для Windows.
+// Задача: Запускать локальный dev-сервер и на лету собирать
+// клиентский JS-бандл с помощью Browserify, используя модульное ядро.
 
 const express = require('express');
 const browserify = require('browserify');
 const path = require('path');
-const fs = require('fs');
 const stream = require('stream');
-
-const slightUI = require('../index.js');
+const slightUI = require('../index.js'); // Наш обновленный API пакета
 
 const app = express();
 const PORT = 3000;
 
-// Утилита для исправления путей для require()
+// Утилита для корректной работы путей в Windows
 function escapePath(p) {
     return p.replace(/\\/g, '\\\\');
 }
 
+// Эндпоинт, который будет отдавать наш JS-бандл
 app.get('/bundle.js', (req, res) => {
-    console.log('[Demo Server] Запрос на /bundle.js, запускаю сборку демо...');
-    res.setHeader('Content-Type', 'application/javascript');
+    console.log('[Server] Запрос на /bundle.js. Начинаю сборку...');
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
 
     try {
-        const entryPointContent = [];
+        // Получаем все необходимые данные и пути через наш API
+        const coreFiles = slightUI.builderAPI.getCoreFilePaths();
+        const hybridData = slightUI.builderAPI.getHybridComponentData();
 
-        const coreFiles = slightUI.getCoreFilePaths();
-        const components = slightUI.getComponentInfo();
-        const hybridData = slightUI.getHybridComponentData();
+        // Создаем виртуальный "входной файл" для Browserify
+        // Мы будем собирать его содержимое по частям.
+        const entryPointContent = `
+            // --- 1. Импорт всех модулей ядра ---
+            const { createReactive, createEffect } = require('${escapePath(coreFiles.reactive)}');
+            const { createUI } = require('${escapePath(coreFiles.api)}');
+            
+            // --- 2. Внедрение данных о компонентах ---
+            // Эти данные были собраны на стороне сервера и теперь доступны на клиенте.
+            const hybridComponentData = ${JSON.stringify(hybridData, null, 2)};
+            
+            // --- 3. Создание глобального объекта UI ---
+            // Передаем в createUI все необходимое: данные и функции реактивности.
+            const UI = createUI(hybridComponentData, { createReactive, createEffect });
+            
+            // --- 4. Загрузка и запуск кода приложения ---
+            // Код приложения теперь полностью отделен от ядра.
+            const appCode = require('${escapePath(path.join(__dirname, 'app.js'))}');
+            appCode(UI); // Передаем UI в качестве зависимости
+        `;
 
-        // Шаг 2.1: Инициализация ядра с экранированными путями
-        entryPointContent.push(`
-            const { render } = require('${escapePath(coreFiles.renderer)}');
-            const { createReactive } = require('${escapePath(coreFiles.reactive)}');
-            const { createBuilderFactory } = require('${escapePath(coreFiles.runtimeBuilder)}');
-            const UI = {};
-            UI.create = (options) => {
-                if (!options.target || !options.view) throw new Error("SlightUI.create требует 'target' и 'view'.");
-                render(options.view, options.target);
-            };
-            UI.createReactive = createReactive;
-        `);
-
-        // Шаг 2.2: Код расширений
-        entryPointContent.push(`
-            function applyExtensions(builderInstance, builderName) {
-                if (builderName === 'input') {
-                    builderInstance.model = function(stateObject, propertyName) {
-                        const propType = this.vNode.props.type === 'checkbox' ? 'checked' : 'value';
-                        this.vNode.props[propType] = stateObject[propertyName];
-                        this.onInput(e => {
-                            const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-                            stateObject[propertyName] = value;
-                        });
-                        return this;
-                    };
-                }
-            }
-        `);
-
-        // Шаг 2.3: Динамическая сборка объекта UI с экранированными путями
-        for (const componentName in components) {
-            const componentInfo = components[componentName];
-            entryPointContent.push(`
-                (function() {
-                    const config = require('${escapePath(componentInfo.path)}');
-                    
-                    if (${componentInfo.isFunction}) {
-                        UI['${componentName}'] = config;
-                        return;
-                    }
-
-                    const componentType = '${componentName.charAt(0).toUpperCase() + componentName.slice(1)}';
-                    const factory = createBuilderFactory(componentType, config.defaults);
-
-                    UI['${componentName}'] = (...args) => {
-                        const builder = factory(...args);
-                        if (config.methods) {
-                            for (const methodName in config.methods) {
-                                builder[methodName] = config.methods[methodName].bind(builder);
-                            }
-                        }
-                        applyExtensions(builder, '${componentName}');
-                        return builder;
-                    };
-                })();
-            `);
-        }
-
-        // Шаг 2.4: UI.component
-        entryPointContent.push(`
-            UI.component = (compFn, props, ...children) => {
-                const vNode = { type: compFn, props: props || {}, children };
-                return { vNode, key: function(k) { this.vNode.props.key = k; return this; }, ref: function(r) { this.vNode.props.ref = r; return this; }, toJSON: function() { return this.vNode; } };
-            };
-        `);
-
-        // Шаг 2.5: Гибридные компоненты
-        entryPointContent.push(`const hybridData = ${JSON.stringify(hybridData)};`);
-        entryPointContent.push(`
-            UI.hybrid = (componentName) => {
-                const data = hybridData[componentName];
-                const vNode = { type: 'HybridComponent', props: { componentName, replacements: {}, listeners: {}, ref: null, onMount: null, onUnmount: null } };
-                if (data) { vNode.props.innerHTML = data.html; vNode.props.inlineStyle = data.css; }
-                return { vNode, replace: function(p, v) { this.vNode.props.replacements['{{' + p + '}}'] = v; return this; }, on: function(s, e, h) { if (!this.vNode.props.listeners[s]) this.vNode.props.listeners[s] = {}; this.vNode.props.listeners[s][e] = h; return this; }, ref: function(r) { this.vNode.props.ref = r; return this; }, toJSON: function() { return this.vNode; } };
-            };
-        `);
-
-        // Шаг 2.6: Код демо-приложения с экранированным путем
-        const appPath = path.resolve(__dirname, 'app.js');
-        entryPointContent.push(`const appCode = require('${escapePath(appPath)}');`);
-        entryPointContent.push(`appCode(UI);`);
-        
+        // Создаем Browserify инстанс
         const b = browserify();
+
+        // Превращаем нашу строку с кодом в читаемый поток (stream),
+        // который Browserify может обработать как файл.
         const readable = new stream.Readable();
         readable._read = () => {};
-        readable.push(entryPointContent.join('\n\n'));
-        readable.push(null);
+        readable.push(entryPointContent);
+        readable.push(null); // Сигнал окончания потока
 
+        // Добавляем наш виртуальный файл в Browserify.
+        // `basedir` нужен, чтобы require() внутри него работал корректно.
         b.add(readable, { basedir: path.resolve(__dirname, '..') });
-        const bundleStream = b.bundle();
 
+        // Запускаем сборку и отправляем результат клиенту (res)
+        const bundleStream = b.bundle();
+        
         bundleStream.on('error', (err) => {
-            console.error("[Demo Server] Ошибка сборки Browserify:", err.message, err.stack);
-            if (!res.headersSent) res.status(500).send(`console.error(\`[SlightUI Demo Build Error] ${err.message.replace(/`/g, "'")}\`)`);
+            console.error("[Server] Ошибка сборки Browserify:", err.message);
+            // Отправляем ошибку в консоль браузера для удобной отладки
+            const errorMessage = `console.error(\`[SlightUI Build Error] ${JSON.stringify(err.message)}\`);`;
+            if (!res.headersSent) {
+                res.status(500).send(errorMessage);
+            }
         });
 
-        bundleStream.pipe(res);
+        bundleStream.pipe(res); // Это и есть магия: результат сборки идет прямо в HTTP-ответ
 
     } catch (error) {
-        console.error("[Demo Server] Критическая ошибка:", error);
-        if (!res.headersSent) res.status(500).send("console.error('Критическая ошибка на сервере сборки демо.');");
+        console.error("[Server] Критическая ошибка:", error);
+        if (!res.headersSent) {
+            res.status(500).send("console.error('Критическая ошибка на сервере сборки.');");
+        }
     }
 });
 
+// Эндпоинт для главной страницы
 app.get('/', (req, res) => {
-    res.sendFile(path.resolve(__dirname, 'test.html'));
+    // Отдаем простейшую HTML-обертку. Вся магия будет в bundle.js
+    res.send(`
+        <!DOCTYPE html>
+        <html lang="ru">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>SlightStack Modular</title>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f4f4f9; }
+                #app { height: 100vh; width: 100vw; }
+            </style>
+        </head>
+        <body>
+            <div id="app"></div>
+            <script src="/bundle.js"></script>
+        </body>
+        </html>
+    `);
 });
 
+// Запускаем сервер
 app.listen(PORT, () => {
-    console.log(`\n✅ SlightUI Demo запущено на http://localhost:${PORT}`);
-    console.log('   Используйте "npm run start:demo" для запуска.');
+    console.log(`\n✅ SlightStack Modular Demo запущено на http://localhost:${PORT}`);
+    console.log('   Остановите сервер через Ctrl+C.');
 });

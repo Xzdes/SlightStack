@@ -1,49 +1,51 @@
-// Файл: core/renderer.js
+// Файл: core/renderer.js (CommonJS, окончательная версия)
 
-const { createEffect } = require('./reactive');
-const { normalize } = require('./vdom');
+const { createDOMElement, applyProps } = require('./dom.js');
+const { normalize } = require('./normalize.js');
 
 function mount(vNode, container) {
     if (!vNode) return;
 
-    const { type, props = {}, children = [] } = vNode;
-    let el;
-
-    if (type === 'Fragment') {
-        children.forEach(child => mount(child, container));
-        vNode.el = container;
-        return;
-    } 
-    if (type === 'text') {
-        el = document.createTextNode(vNode.children || '');
-    } else if (type === 'HybridComponent') {
-        el = mountHybrid(vNode);
-    } else {
-        el = document.createElement(props.tag || 'div');
-        children.forEach(child => mount(child, el));
-    }
-    
+    const el = createDOMElement(vNode);
     vNode.el = el;
-    if (props.ref) props.ref.current = el;
-    patchProps(el, {}, props);
+    
+    applyProps(el, {}, vNode.props);
+    
+    if (vNode.type === 'HybridComponent' && vNode.props.listeners) {
+         for (const selector in vNode.props.listeners) {
+            const elements = selector === 'root' ? [el] : el.querySelectorAll(selector);
+            elements.forEach(targetEl => {
+                for (const eventName in vNode.props.listeners[selector]) {
+                    const handler = vNode.props.listeners[selector][eventName];
+                    targetEl.addEventListener(eventName, handler);
+                }
+            });
+        }
+    }
+
+    if (el.nodeType === 1) { 
+        const children = vNode.type === 'HybridComponent' ? vNode.props.children : vNode.children;
+        if (children && children.length > 0) {
+            const mountContainer = el.querySelector('[data-slight-slot]') || el;
+            children.forEach(child => mount(child, mountContainer));
+        }
+    }
+
     if (container) container.appendChild(el);
-    if (props.onMount) props.onMount(el);
+    if (vNode.props?.ref) vNode.props.ref.current = el;
+    if (vNode.props?.onMount) vNode.props.onMount(el);
 }
 
 function unmount(vNode) {
     if (!vNode) return;
-    if (vNode.props && vNode.props.onUnmount) vNode.props.onUnmount(vNode.el);
-    if (vNode.props && vNode.props.ref) vNode.props.ref.current = null;
-    if (vNode.type === 'Fragment') {
-        vNode.children.forEach(unmount);
-        return;
-    }
+    if (vNode.props?.onUnmount) vNode.props.onUnmount(vNode.el);
+    if (vNode.props?.ref) vNode.props.ref.current = null;
     const parent = vNode.el.parentNode;
     if (parent) parent.removeChild(vNode.el);
 }
 
 function patch(n1, n2) {
-    if (n1.type !== n2.type || (n1.props?.tag !== n2.props?.tag)) {
+    if (n1.type !== n2.type || (n1.props.tag && n1.props.tag !== n2.props.tag)) {
         const parent = n1.el.parentNode;
         unmount(n1);
         mount(n2, parent);
@@ -51,138 +53,70 @@ function patch(n1, n2) {
     }
 
     const el = (n2.el = n1.el);
-
-    if (n1.type === 'Fragment') {
-        patchChildren(el, n1.children, n2.children);
-        return;
-    }
-    if (n1.type === 'text') {
-        if (n1.children !== n2.children) {
-            el.textContent = n2.children;
-        }
-        return;
-    }
+    
     if (n1.type === 'HybridComponent') {
-        // Гибридные компоненты пока обновляем полностью при смене props
-        if (JSON.stringify(n1.props) !== JSON.stringify(n2.props)) {
-            const parent = el.parentNode; 
-            unmount(n1); 
+        if (JSON.stringify(n1.props.replacements) !== JSON.stringify(n2.props.replacements)) {
+            const parent = n1.el.parentNode;
+            unmount(n1);
             mount(n2, parent);
+            return;
         }
-        return;
     }
     
-    patchProps(el, n1.props || {}, n2.props || {});
-    patchChildren(el, n1.children, n2.children);
-}
+    applyProps(el, n1.props, n2.props);
 
-function patchProps(el, oldProps, newProps) {
-    if (oldProps === newProps) return;
-    oldProps = oldProps || {};
-    newProps = newProps || {};
-
-    for (const key in newProps) {
-        if (key === 'children' || key === 'key' || key === 'ref' || key === 'tag') continue;
+    if (n1.props.tag) {
+        // --- ГЛАВНОЕ ИСПРАВЛЕНИЕ ---
+        // Извлекаем текст из дочернего VNode, а не сам VNode.
+        const oldText = n1.children[0] ? n1.children[0].children : '';
+        const newText = n2.children[0] ? n2.children[0].children : '';
         
-        const oldValue = oldProps[key];
-        const newValue = newProps[key];
-
-        if (newValue !== oldValue) {
-            if (key.startsWith('on')) {
-                const eventName = key.slice(2).toLowerCase();
-                if (oldValue) el.removeEventListener(eventName, oldValue);
-                el.addEventListener(eventName, newValue);
-            } else if (key === 'style') {
-                for (const styleKey in newValue) { el.style[styleKey] = newValue[styleKey]; }
-                for (const styleKey in oldValue) { if (!(styleKey in newValue)) { el.style[styleKey] = ''; } }
-            } else if (key === 'value' || key === 'checked') {
-                if (el[key] !== newValue) el[key] = newValue;
-            } else if (key === 'attrs') { // <-- НОВОЕ: Обработка data-атрибутов
-                for (const attrKey in newValue) { el.setAttribute(attrKey, newValue[attrKey]); }
-                if (oldValue) {
-                    for (const attrKey in oldValue) { if (!(attrKey in newValue)) { el.removeAttribute(attrKey); } }
-                }
-            } else {
-                if (newValue == null || newValue === false) el.removeAttribute(key);
-                else el.setAttribute(key, newValue);
-            }
+        if (oldText !== newText) {
+            el.textContent = newText;
         }
-    }
-
-    for (const key in oldProps) {
-        if (key === 'children' || key === 'key' || key === 'ref' || key === 'tag' || key in newProps) continue;
-        
-        if (key.startsWith('on')) {
-            el.removeEventListener(key.slice(2).toLowerCase(), oldProps[key]);
-        } else if (key === 'attrs') { // <-- НОВОЕ: Удаление старых data-атрибутов
-             for (const attrKey in oldProps[key]) {
-                 el.removeAttribute(attrKey);
-             }
-        } else {
-            el.removeAttribute(key);
-        }
+    } 
+    else if (n1.type === 'HybridComponent') {
+        const container = el.querySelector('[data-slight-slot]') || el;
+        patchChildren(container, n1.props.children, n2.props.children);
     }
 }
 
 function patchChildren(container, oldCh, newCh) {
-    let oldStartIdx = 0, newStartIdx = 0;
-    let oldEndIdx = oldCh.length - 1, newEndIdx = newCh.length - 1;
-    let oldStartVNode = oldCh[0], newStartVNode = newCh[0];
-    let oldEndVNode = oldCh[oldEndIdx], newEndVNode = newCh[newEndIdx];
-    let keyToOldIdx;
+    const oldLen = oldCh.length;
+    const newLen = newCh.length;
+    const commonLen = Math.min(oldLen, newLen);
 
-    while (oldStartIdx <= oldEndIdx && newStartIdx <= newEndIdx) {
-        if (!oldStartVNode) oldStartVNode = oldCh[++oldStartIdx];
-        else if (!oldEndVNode) oldEndVNode = oldCh[--oldEndIdx];
-        else if (isSameVNodeType(oldStartVNode, newStartVNode)) {
-            patch(oldStartVNode, newStartVNode); oldStartVNode = oldCh[++oldStartIdx]; newStartVNode = newCh[++newStartIdx];
-        } else if (isSameVNodeType(oldEndVNode, newEndVNode)) {
-            patch(oldEndVNode, newEndVNode); oldEndVNode = oldCh[--oldEndIdx]; newEndVNode = newCh[--newEndIdx];
-        } else if (isSameVNodeType(oldStartVNode, newEndVNode)) {
-            patch(oldStartVNode, newEndVNode); container.insertBefore(oldStartVNode.el, oldEndVNode.el.nextSibling); oldStartVNode = oldCh[++oldStartIdx]; newEndVNode = newCh[--newEndIdx];
-        } else if (isSameVNodeType(oldEndVNode, newStartVNode)) {
-            patch(oldEndVNode, newStartVNode); container.insertBefore(oldEndVNode.el, oldStartVNode.el); oldEndVNode = oldCh[--oldEndIdx]; newStartVNode = newCh[++newStartIdx];
-        } else {
-            if (!keyToOldIdx) keyToOldIdx = createKeyToOldIdx(oldCh, oldStartIdx, oldEndIdx);
-            const idxInOld = newStartVNode.props?.key ? keyToOldIdx[newStartVNode.props.key] : null;
-            if (newStartVNode.props?.key === undefined) console.warn('[SlightUI] Элемент в списке без "key".', newStartVNode);
-            if (idxInOld == null) {
-                mount(newStartVNode, container);
-                container.insertBefore(newStartVNode.el, oldStartVNode ? oldStartVNode.el : null);
+    for (let i = 0; i < commonLen; i++) {
+        patch(oldCh[i], newCh[i]);
+    }
+    
+    if (newLen > oldLen) {
+        for (let i = commonLen; i < newLen; i++) {
+            mount(newCh[i], container);
+        }
+    } else if (oldLen > newLen) {
+        for (let i = commonLen; i < oldLen; i++) {
+            unmount(oldCh[i]);
+        }
+    }
+}
+
+function createRender(createEffect) {
+    return function render(viewFn, targetElement) {
+        let oldVNode = null;
+        createEffect(() => {
+            const newVNode = normalize(viewFn());
+            if (!oldVNode) {
+                targetElement.innerHTML = '';
+                mount(newVNode, targetElement);
             } else {
-                const vnodeToMove = oldCh[idxInOld];
-                patch(vnodeToMove, newStartVNode); oldCh[idxInOld] = undefined;
-                container.insertBefore(vnodeToMove.el, oldStartVNode.el);
+                patch(oldVNode, newVNode);
             }
-            newStartVNode = newCh[++newStartIdx];
-        }
-    }
-    if (oldStartIdx > oldEndIdx) {
-        const anchor = newCh[newEndIdx + 1] ? newCh[newEndIdx + 1].el : null;
-        for (let i = newStartIdx; i <= newEndIdx; i++) {
-            mount(newCh[i], container); container.insertBefore(newCh[i].el, anchor);
-        }
-    } else if (newStartIdx > newEndIdx) {
-        for (let i = oldStartIdx; i <= oldEndIdx; i++) if (oldCh[i]) unmount(oldCh[i]);
-    }
+            oldVNode = newVNode;
+        });
+    };
 }
 
-function isSameVNodeType(n1, n2) { return n1.type === n2.type && n1.props?.key === n2.props?.key; }
-function createKeyToOldIdx(children, beginIdx, endIdx) { const map = {}; for (let i = beginIdx; i <= endIdx; i++) { const child = children[i]; if (child && child.props && child.props.key != null) map[child.props.key] = i; } return map; }
-function mountHybrid(vNode) { const { props } = vNode; const { innerHTML, inlineStyle, replacements, listeners, componentName } = props; const styleId = `hybrid-style-${componentName}`; if (inlineStyle && !document.getElementById(styleId)) { const styleEl = document.createElement('style'); styleEl.id = styleId; styleEl.textContent = inlineStyle; document.head.appendChild(styleEl); } const tempContainer = document.createElement('div'); let finalHTML = innerHTML || ''; if (replacements) { for (const placeholder in replacements) { finalHTML = finalHTML.replace(new RegExp(placeholder.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1"), 'g'), String(replacements[placeholder])); } } tempContainer.innerHTML = finalHTML; const rootHybridEl = tempContainer.firstElementChild; if (rootHybridEl && listeners) { for (const selector in listeners) { const targetElement = selector === 'root' ? rootHybridEl : rootHybridEl.querySelector(selector); if (targetElement) { for (const event in listeners[selector]) targetElement.addEventListener(event, listeners[selector][event]); } } } return rootHybridEl || document.createComment(`hybrid-placeholder-${componentName}`); }
-
-function render(viewFn, targetElement) {
-    let oldVNode = null;
-    createEffect(() => {
-        const newVNode = normalize(viewFn());
-        if (!oldVNode) {
-            targetElement.innerHTML = '';
-            mount(newVNode, targetElement);
-        } else {
-            patch(oldVNode, newVNode);
-        }
-        oldVNode = newVNode;
-    });
-}
-
-module.exports = { render };
+module.exports = {
+    createRender
+};
