@@ -1,66 +1,69 @@
-// Файл: core/reactive.js (НОВАЯ ВЕРСИЯ С ПОДДЕРЖКОЙ МАССИВОВ)
+// Файл: core/reactive.js (CommonJS, финальная исправленная версия)
 
 const tracker = require('./tracker');
+const targetMap = new Map();
 
-const dependencyMap = new Map();
-
-function track(key) {
+function track(target, key) {
     const activeEffect = tracker.getActiveUpdater();
     if (activeEffect) {
-        if (!dependencyMap.has(key)) {
-            dependencyMap.set(key, new Set());
+        let depsMap = targetMap.get(target);
+        if (!depsMap) {
+            depsMap = new Map();
+            targetMap.set(target, depsMap);
         }
-        dependencyMap.get(key).add(activeEffect);
+        let dep = depsMap.get(key);
+        if (!dep) {
+            dep = new Set();
+            depsMap.set(key, dep);
+        }
+        dep.add(activeEffect);
     }
 }
 
-function trigger(key) {
-    const effects = dependencyMap.get(key);
-    if (effects) {
-        const effectsToRun = new Set(effects);
+function trigger(target, key) {
+    const depsMap = targetMap.get(target);
+    if (!depsMap) return;
+    const dep = depsMap.get(key);
+    if (dep) {
+        const effectsToRun = new Set(dep);
         effectsToRun.forEach(effect => effect());
     }
 }
 
-// Методы, которые изменяют массив, не меняя его ссылку
 const arrayMutatingMethods = ['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse'];
 
 function createReactive(target) {
+    if (target === null || typeof target !== 'object') {
+        return target;
+    }
     return new Proxy(target, {
         get(target, key, receiver) {
-            // Если мы обращаемся к свойству массива...
             if (Array.isArray(target) && arrayMutatingMethods.includes(key)) {
-                // ...мы возвращаем нашу собственную функцию-обертку.
                 return function(...args) {
-                    // Сначала выполняем оригинальный метод (например, push)
                     const result = Array.prototype[key].apply(target, args);
-                    // А затем ПРИНУДИТЕЛЬНО запускаем обновление для свойства 'length' массива.
-                    // Этого достаточно, чтобы компоненты, использующие массив, перерисовались.
-                    trigger('length');
+                    trigger(target, 'length');
                     return result;
                 };
             }
-
-            // Отслеживаем чтение любого свойства
-            track(key);
-            return Reflect.get(target, key, receiver);
+            track(target, key);
+            const value = Reflect.get(target, key, receiver);
+            if (value !== null && typeof value === 'object') {
+                return createReactive(value);
+            }
+            return value;
         },
         set(target, key, value, receiver) {
+            // --- ГЛАВНОЕ ИСПРАВЛЕНИЕ ---
+            const hadKey = Array.isArray(target) ? Number(key) < target.length : Object.prototype.hasOwnProperty.call(target, key);
             const oldValue = target[key];
-            if (oldValue === value) {
-                return true;
-            }
-
-            // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ДЛЯ IF ---
-            // Если мы меняем свойство, от которого зависит if (например, showInfo),
-            // то нужно триггерить обновление.
             const result = Reflect.set(target, key, value, receiver);
-            trigger(key);
-            
-            // Если изменилась длина массива (например, state.users = [...]),
-            // также триггерим обновление по 'length', чтобы UI.for среагировал.
-            if (Array.isArray(target) && key === 'length') {
-                trigger('length');
+
+            if (!hadKey) {
+                // Если ключа не было (добавление нового элемента в массив)
+                trigger(target, 'length');
+            } else if (value !== oldValue) {
+                // Если значение изменилось
+                trigger(target, key);
             }
 
             return result;
