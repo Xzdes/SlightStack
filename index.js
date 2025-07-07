@@ -24,6 +24,10 @@ function getCoreFilePaths() {
         // Рендеринг
         dom: path.join(corePath, 'dom.js'),
         renderer: path.join(corePath, 'renderer.js'),
+        // <<< НОВОЕ >>>
+        stateManager: path.join(corePath, 'state-manager.js'),
+        propsResolver: path.join(corePath, 'props-resolver.js'),
+        // <<< КОНЕЦ НОВОГО >>>
         // API
         api: path.join(corePath, 'api.js'),
     };

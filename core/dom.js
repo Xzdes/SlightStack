@@ -1,85 +1,120 @@
-// Файл: core/dom.js (CommonJS, финальная версия)
+// Файл: core/dom.js (CommonJS, финальная исправленная версия)
 
-function createDOMElement(vNode) {
-    // Для VNode от UI.text() или любого другого, у кого есть тег
-    if (vNode.props.tag) {
-        // Создаем ПУСТОЙ элемент. За его наполнение
-        // будет отвечать рекурсивный вызов mount в renderer.js
-        return document.createElement(vNode.props.tag);
-    }
-    
-    // Для "чистых" текстовых VNode, которые являются детьми других узлов
-    if (vNode.type === 'text') {
-        return document.createTextNode(vNode.children || '');
-    }
+const { resolveProps } = require('./props-resolver.js');
+const { stateContainer } = require('./state-manager.js');
 
-    if (vNode.type === 'Fragment') {
-        return document.createDocumentFragment();
+function createDOMElement(vnode) {
+    if (vnode.type === 'HybridComponent') {
+        const tempContainer = document.createElement('div');
+        const rawHTML = (vnode.props.innerHTML || '').replace(/{{SLOT}}/g, '<div data-slight-slot></div>');
+        tempContainer.innerHTML = rawHTML;
+        return tempContainer.firstElementChild || document.createComment(`hybrid-placeholder-for-${vnode.props.componentName}`);
     }
-    
-    if (vNode.type === 'HybridComponent') {
-        return createHybridElement(vNode);
+    if (vnode.type === 'GenericTextElement') {
+        return document.createElement(vnode.props.tag || 'p');
     }
-    
-    return document.createComment('unknown vnode type');
+    if (vnode.type === 'text') { return document.createTextNode(''); }
+    if (vnode.type === 'Fragment') { return document.createDocumentFragment(); }
+    return document.createComment(`unknown vnode type: ${vnode.type}`);
 }
 
-function createHybridElement(vNode) {
-    const { componentName, innerHTML, inlineStyle, replacements, attrs } = vNode.props;
-    const styleId = `slight-style-${componentName}`;
-    if (inlineStyle && !document.getElementById(styleId)) {
-        const styleEl = document.createElement('style'); styleEl.id = styleId; styleEl.textContent = inlineStyle; document.head.appendChild(styleEl);
+
+const VALID_PROPS = new Set(['id', 'className', 'value', 'checked', 'disabled', 'placeholder', 'src', 'alt', 'href', 'target', 'type', 'key', 'ref']);
+const IS_EVENT = key => key.startsWith('on');
+const IS_INTERNAL = key => ['children', 'model', 'listeners', 'tag', 'componentName', 'inlineStyle', 'innerHTML', 'replacements', 'attrs'].includes(key);
+
+function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
+    if (el.nodeType !== 1) { // Для текстовых узлов
+        const newText = newProps.text !== undefined ? String(newProps.text) : '';
+        if (el.textContent !== newText) { el.textContent = newText; }
+        return;
     }
     
-    let finalHTML = innerHTML || '';
-
-    // Сначала заменяем плейсхолдеры для атрибутов
-    if (attrs) {
-        for(const key in attrs) {
-            const placeholder = `{{${key.toUpperCase()}}}`;
-            if (finalHTML.includes(placeholder)) {
-                 finalHTML = finalHTML.replace(new RegExp(placeholder, 'g'), attrs[key]);
-            }
+    if (vnode.type === 'GenericTextElement' && newProps.text !== undefined) {
+        if (el.textContent !== String(newProps.text)) {
+            el.textContent = String(newProps.text);
         }
-    }
-
-    const tempContainer = document.createElement('div');
-    tempContainer.innerHTML = finalHTML;
-    const rootEl = tempContainer.firstElementChild;
-
-    if (rootEl) {
-        // Применяем атрибуты к самому элементу
-        if (attrs) {
-            for (const key in attrs) {
-                rootEl.setAttribute(key, attrs[key]);
-            }
-        }
-
-        // Применяем замены текста
-        if (replacements) {
-            let currentHTML = rootEl.innerHTML;
-            for (const placeholder in replacements) {
-                currentHTML = currentHTML.replace(new RegExp(placeholder.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1"), 'g'), String(replacements[placeholder]));
-            }
-            rootEl.innerHTML = currentHTML;
-        }
-        
-        // Обрабатываем слот
-        let slotHTML = rootEl.innerHTML;
-        rootEl.innerHTML = slotHTML.replace(/{{SLOT}}/g, '<div data-slight-slot></div>');
     }
     
-    return rootEl || document.createComment(`hybrid-placeholder-for-${componentName}`);
-}
+    if (vnode.type === 'HybridComponent') {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while(node = walker.nextNode()) {
+            const placeholderMatch = node.nodeValue.match(/{{([A-Z_]+)}}/);
+            if (placeholderMatch) {
+                const propKey = placeholderMatch[1].toLowerCase();
+                const newValue = newProps[propKey];
+                if (newValue !== undefined && node.nodeValue !== String(newValue)) {
+                    node.nodeValue = String(newValue);
+                }
+            }
+        }
+    }
 
-function applyProps(el, oldProps = {}, newProps = {}) {
-    if (el.nodeType !== 1) return;
     const allProps = { ...oldProps, ...newProps };
     for (const key in allProps) {
+        if (IS_INTERNAL(key) || key.toLowerCase() === 'text') continue;
+
         const oldValue = oldProps[key];
         const newValue = newProps[key];
+        
         if (newValue === oldValue) continue;
-        if (key.startsWith('on')) { const eventName = key.slice(2).toLowerCase(); if (oldValue) el.removeEventListener(eventName, oldValue); if (newValue) el.addEventListener(eventName, newValue); } else if (key === 'style') { for (const styleKey in newValue) el.style[styleKey] = newValue[styleKey]; if (oldValue) { for (const styleKey in oldValue) if (!(styleKey in newValue)) el.style[styleKey] = ''; } } else if (key === 'attrs') { for (const attrKey in newValue) el.setAttribute(attrKey, newValue[attrKey]); if (oldValue) { for (const attrKey in oldValue) if (!(attrKey in newValue)) el.removeAttribute(attrKey); } } else if (['value', 'checked', 'disabled'].includes(key)) { el[key] = newValue; }
+
+        if (IS_EVENT(key)) {
+            const eventName = key.slice(2).toLowerCase();
+            if (oldValue) el.removeEventListener(eventName, oldValue);
+            if (newValue) el.addEventListener(eventName, newValue);
+        } else if (key === 'style' && typeof newValue === 'object') {
+            el.style.cssText = '';
+            for (const styleKey in newValue) { el.style[styleKey] = newValue[styleKey]; }
+        } else if (VALID_PROPS.has(key)) {
+             if (el[key] !== newValue) {
+                el[key] = newValue;
+             }
+        } else {
+             if (el.style[key] !== undefined) {
+                el.style[key] = newValue;
+             } else {
+                 if (newValue == null || newValue === false) {
+                     el.removeAttribute(key);
+                 } else {
+                     el.setAttribute(key, String(newValue));
+                 }
+             }
+        }
     }
 }
+
+
+function applyProps(el, vnode) {
+    if (!vnode) return;
+    if (!vnode._internal) vnode._internal = { vnode: vnode };
+
+    const rawProps = { ...vnode.props };
+    const componentState = vnode._internal.state || {};
+    
+    if (rawProps.model && Array.isArray(rawProps.model)) {
+        const [stateObject, propertyName] = rawProps.model;
+        const isCheckbox = typeof stateObject[propertyName] === 'boolean';
+        if (isCheckbox) {
+            rawProps.type = 'checkbox';
+            rawProps.checked = stateObject[propertyName];
+            rawProps.onchange = e => stateObject[propertyName] = e.target.checked;
+        } else {
+            if (!rawProps.type) {
+                rawProps.type = 'text';
+            }
+            rawProps.value = stateObject[propertyName];
+            rawProps.oninput = e => stateObject[propertyName] = e.target.value;
+        }
+    }
+    
+    const finalProps = resolveProps(rawProps, stateContainer, componentState);
+    const oldFinalProps = vnode._internal.lastAppliedProps || {};
+    
+    applyPlainProps(el, oldFinalProps, finalProps, vnode);
+
+    vnode._internal.lastAppliedProps = finalProps;
+}
+
 module.exports = { createDOMElement, applyProps };
