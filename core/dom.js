@@ -86,35 +86,10 @@ function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
 }
 
 
-function applyProps(el, vnode) {
+function applyProps(el, vnode, oldResolvedProps = {}) {
     if (!vnode) return;
-    if (!vnode._internal) vnode._internal = { vnode: vnode };
-
-    const rawProps = { ...vnode.props };
-    const componentState = vnode._internal.state || {};
     
-    if (rawProps.model && Array.isArray(rawProps.model)) {
-        const [stateObject, propertyName] = rawProps.model;
-        const isCheckbox = typeof stateObject[propertyName] === 'boolean';
-        if (isCheckbox) {
-            rawProps.type = 'checkbox';
-            rawProps.checked = stateObject[propertyName];
-            rawProps.onchange = e => stateObject[propertyName] = e.target.checked;
-        } else {
-            if (!rawProps.type) {
-                rawProps.type = 'text';
-            }
-            rawProps.value = stateObject[propertyName];
-            rawProps.oninput = e => stateObject[propertyName] = e.target.value;
-        }
-    }
-    
-    const finalProps = resolveProps(rawProps, stateContainer, componentState);
-    const oldFinalProps = vnode._internal.lastAppliedProps || {};
-    
-    applyPlainProps(el, oldFinalProps, finalProps, vnode);
-
-    vnode._internal.lastAppliedProps = finalProps;
+    applyPlainProps(el, oldResolvedProps, vnode.resolvedProps, vnode);
 }
 
 module.exports = { createDOMElement, applyProps };

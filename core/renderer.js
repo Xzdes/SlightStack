@@ -2,14 +2,15 @@
 
 const { createDOMElement, applyProps } = require('./dom.js');
 const { normalize } = require('./normalize.js');
-const { attachInteractiveState } = require('./state-manager.js');
+const { attachInteractiveState, stateContainer } = require('./state-manager.js');
+const { resolveProps } = require('./props-resolver.js');
 
 function mount(vNode, container) {
     if (!vNode) return;
     const el = createDOMElement(vNode);
     vNode.el = el;
 
-    applyProps(el, vNode);
+    applyProps(el, vNode, {}); 
     attachInteractiveState(vNode);
     
     if (vNode.type === 'HybridComponent' && vNode.props.listeners) { 
@@ -25,7 +26,7 @@ function mount(vNode, container) {
     }
     
     if (el.nodeType === 1 || el.nodeType === 11) {
-        const children = vNode.type === 'HybridComponent' ? vNode.props.children : vNode.children;
+        const children = vNode.resolvedProps?.children || vNode.children;
         if (children && children.length > 0) {
             const mountContainer = vNode.type === 'Fragment' ? container : (el.querySelector('[data-slight-slot]') || el);
             children.forEach(child => mount(child, mountContainer));
@@ -46,15 +47,61 @@ function unmount(vNode) {
     if (parent) parent.removeChild(vNode.el);
 }
 
+function shallowEqual(objA, objB) {
+    if (objA === objB) return true;
+    if (!objA || !objB) return false;
+    const keysA = Object.keys(objA);
+    const keysB = Object.keys(objB);
+    if (keysA.length !== keysB.length) return false;
+    for (let i = 0; i < keysA.length; i++) {
+        const key = keysA[i];
+        if (typeof objA[key] === 'function' || key === 'children' || key === 'model') continue;
+        if (objA[key] !== objB[key]) {
+            if (key === 'style') {
+                try {
+                    if (JSON.stringify(objA[key]) !== JSON.stringify(objB[key])) return false;
+                } catch (e) { return false; }
+            } else { return false; }
+        }
+    }
+    return true;
+}
+
 function patch(n1, n2) {
     if (!n1 || !n2) return;
-    if (n1.type !== n2.type || (n1.props.tag && n1.props.tag !== n2.props.tag)) {
-        const parent = n1.el.parentNode;
-        unmount(n1);
-        mount(n2, parent);
+    
+    // [КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ]
+    // Если типы узлов не совпадают, мы должны их полностью заменить.
+    if (n1.type !== n2.type || (n1.props?.tag && n1.props.tag !== n2.props.tag)) {
+        // Находим родительский DOM-узел, даже для фрагментов.
+        // Для обычного узла это n1.el.parentNode.
+        // Для фрагмента это родитель его первого дочернего элемента.
+        const parent = n1.type === 'Fragment' 
+            ? n1.children[0]?.el?.parentNode
+            : n1.el?.parentNode;
+
+        if (parent) {
+            unmount(n1);
+            mount(n2, parent);
+        } else {
+             console.error('[SlightUI] Не удалось найти родительский узел для замены.', n1);
+        }
         return;
     }
-
+    
+    // Если мы здесь, типы совпадают.
+    // Обрабатываем фрагменты отдельно.
+    if (n1.type === 'Fragment') {
+        // У фрагмента нет своего `el`, поэтому мы не можем его передать.
+        // Мы просто патчим его детей в их общем контейнере.
+        const container = n1.children[0]?.el.parentNode;
+        if (container) {
+            patchChildren(container, n1.children, n2.children);
+        }
+        return; // Завершаем обработку для фрагментов
+    }
+    
+    // Для всех остальных типов узлов (у которых есть `el`)
     const el = (n2.el = n1.el);
 
     if (n1._internal) {
@@ -62,24 +109,16 @@ function patch(n1, n2) {
         n2._internal.vnode = n2;
     }
     
-    // Для гибридных компонентов, если HTML-шаблон изменился (очень редкий случай, но для полноты)
-    if (n1.type === 'HybridComponent' && n1.props.innerHTML !== n2.props.innerHTML) {
-        const parent = n1.el.parentNode; 
-        unmount(n1); 
-        mount(n2, parent); 
-        return;
+    if (!shallowEqual(n1.resolvedProps, n2.resolvedProps)) {
+        applyProps(el, n2, n1.resolvedProps);
     }
-
-    applyProps(el, n2);
     
-    const oldCh = n1.type === 'HybridComponent' ? n1.props.children : n1.children;
-    const newCh = n2.type === 'HybridComponent' ? n2.props.children : n2.children;
-    const container = n1.type === 'Fragment' 
-        ? n1.children[0]?.el.parentNode
-        : (el.querySelector('[data-slight-slot]') || el);
+    const oldCh = n1.resolvedProps?.children || [];
+    const newCh = n2.resolvedProps?.children || [];
+    const container = el.querySelector('[data-slight-slot]') || el;
 
     if (container) {
-        patchChildren(container, oldCh || [], newCh || []);
+        patchChildren(container, oldCh, newCh);
     }
 }
 
@@ -88,13 +127,11 @@ function isSameVNodeType(n1, n2) {
     return n1 && n2 && n1.type === n2.type && n1.props?.key === n2.props?.key;
 }
 
-// [ИЗМЕНЕНИЕ] Полностью переписанный и более надежный алгоритм patchChildren
 function patchChildren(container, c1, c2) {
     const oldLength = c1.length;
     const newLength = c2.length;
     let i = 0;
 
-    // 1. Синхронизация префикса (общих узлов в начале)
     while (i < oldLength && i < newLength) {
         const n1 = c1[i];
         const n2 = c2[i];
@@ -106,7 +143,6 @@ function patchChildren(container, c1, c2) {
         i++;
     }
 
-    // 2. Синхронизация суффикса (общих узлов в конце)
     let oldEnd = oldLength - 1;
     let newEnd = newLength - 1;
     while (oldEnd >= i && newEnd >= i) {
@@ -121,8 +157,6 @@ function patchChildren(container, c1, c2) {
         newEnd--;
     }
 
-    // 3. Обработка середины
-    // Если остались только новые узлы, добавляем их
     if (i > oldEnd && i <= newEnd) {
         const anchorIndex = newEnd + 1;
         const anchor = anchorIndex < c2.length ? c2[anchorIndex].el : null;
@@ -132,14 +166,12 @@ function patchChildren(container, c1, c2) {
             i++;
         }
     }
-    // Если остались только старые узлы, удаляем их
     else if (i > newEnd && i <= oldEnd) {
         while (i <= oldEnd) {
             unmount(c1[i]);
             i++;
         }
     }
-    // Самый сложный случай: середина изменилась
     else {
         const oldStartIndex = i;
         const newStartIndex = i;
@@ -167,7 +199,6 @@ function patchChildren(container, c1, c2) {
             if (prevChild.props?.key != null) {
                 newIndex = keyToNewIndexMap.get(prevChild.props.key);
             } else {
-                // Обработка узлов без ключей (менее эффективно)
                 for (let j = newStartIndex; j <= newEnd; j++) {
                     if (newIndexToOldIndexMap[j - newStartIndex] === 0 && isSameVNodeType(prevChild, c2[j])) {
                         newIndex = j;
@@ -185,8 +216,6 @@ function patchChildren(container, c1, c2) {
             }
         }
         
-        // Перемещаем и монтируем оставшиеся узлы
-        // Используем алгоритм LIS (Longest Increasing Subsequence) для минимизации перемещений
         const increasingNewIndexSequence = getSequence(newIndexToOldIndexMap);
         let j = increasingNewIndexSequence.length - 1;
         for (i = toBePatched - 1; i >= 0; i--) {
@@ -195,11 +224,9 @@ function patchChildren(container, c1, c2) {
             const anchor = newIndex + 1 < c2.length ? c2[newIndex + 1].el : null;
 
             if (newIndexToOldIndexMap[i] === 0) {
-                // Монтируем новый узел
                 mount(newChild, container);
                 container.insertBefore(newChild.el, anchor);
             } else {
-                // Перемещаем, если узел не в LIS
                 if (j < 0 || i !== increasingNewIndexSequence[j]) {
                     container.insertBefore(newChild.el, anchor);
                 } else {
@@ -210,8 +237,6 @@ function patchChildren(container, c1, c2) {
     }
 }
 
-// Хелпер для нахождения самой длинной возрастающей подпоследовательности (LIS)
-// Это стандартный алгоритм, используемый во Vue для оптимизации перемещений
 function getSequence(arr) {
     const p = arr.slice();
     const result = [0];
@@ -258,7 +283,37 @@ function createRender(createEffect) {
     return function render(viewFn, targetElement) { 
         let oldVNode = null; 
         createEffect(() => { 
-            const newVNode = normalize(viewFn()); 
+            let newVNode = normalize(viewFn());
+            
+            function traverseAndResolve(vnode) {
+                if (!vnode) return;
+                
+                if (!vnode._internal) vnode._internal = { vnode };
+
+                const rawProps = { ...vnode.props };
+                 if (rawProps.model && Array.isArray(rawProps.model)) {
+                    const [stateObject, propertyName] = rawProps.model;
+                    const isCheckbox = typeof stateObject[propertyName] === 'boolean';
+                    if (isCheckbox) {
+                        rawProps.type = 'checkbox'; rawProps.checked = stateObject[propertyName];
+                        rawProps.onchange = e => stateObject[propertyName] = e.target.checked;
+                    } else {
+                        if (!rawProps.type) { rawProps.type = 'text'; }
+                        rawProps.value = stateObject[propertyName];
+                        rawProps.oninput = e => stateObject[propertyName] = e.target.value;
+                    }
+                }
+                
+                vnode.resolvedProps = resolveProps(rawProps, stateContainer, vnode._internal.state || {});
+
+                const children = vnode.resolvedProps.children || vnode.children;
+                if (children && children.length > 0) {
+                    children.forEach(traverseAndResolve);
+                }
+            }
+
+            traverseAndResolve(newVNode);
+            
             if (!oldVNode) { 
                 targetElement.innerHTML = ''; 
                 mount(newVNode, targetElement); 
