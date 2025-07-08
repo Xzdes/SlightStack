@@ -15,7 +15,6 @@ function setMainRenderEffect(effect) {
 function initScreenState(createReactiveFn) {
     if (stateContainer.screenState) return;
     
-    // Мы снова делаем screenState реактивным, так как create-app передает createReactive
     stateContainer.screenState = createReactiveFn({
         width: window.innerWidth,
         height: window.innerHeight,
@@ -23,7 +22,7 @@ function initScreenState(createReactiveFn) {
     });
 
     window.addEventListener('resize', updateScreenBreakpoint, { passive: true });
-    updateScreenBreakpoint(); // Первоначальный вызов для установки значения
+    updateScreenBreakpoint();
 }
 
 function setBreakpoints(newBreakpoints) {
@@ -37,8 +36,6 @@ function setBreakpoints(newBreakpoints) {
 function updateScreenBreakpoint() {
     if (!stateContainer.screenState) return;
     const width = window.innerWidth;
-    const oldBreakpoint = stateContainer.screenState.breakpoint;
-
     stateContainer.screenState.width = width;
     stateContainer.screenState.height = window.innerHeight;
     
@@ -50,9 +47,6 @@ function updateScreenBreakpoint() {
         }
     }
     
-    // Это изменение будет отслежено системой реактивности,
-    // так как мы читаем screenState.breakpoint внутри resolveProps,
-    // который вызывается в главном эффекте.
     stateContainer.screenState.breakpoint = currentBreakpoint;
 }
 
@@ -70,9 +64,22 @@ function attachInteractiveState(vnode) {
             break;
         }
     }
-    if (!needsAttachment) return;
+    
+    if (!needsAttachment && !props.group) return;
+
     if (!vnode._internal) vnode._internal = { vnode: vnode };
     if (!vnode._internal.state) vnode._internal.state = {};
+    
+    if (props.group && !vnode._internal.state.hasGroupListener) {
+        vnode.el.addEventListener('mouseenter', () => {
+            vnode.el.setAttribute('data-group-hover', 'true');
+        });
+        vnode.el.addEventListener('mouseleave', () => {
+            vnode.el.removeAttribute('data-group-hover');
+        });
+        vnode._internal.state.hasGroupListener = true;
+    }
+
     for (const stateName in interactiveStates) {
         const stateConfig = interactiveStates[stateName];
         const propIdentifier = `:${stateName}:`;

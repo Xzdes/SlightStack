@@ -2,7 +2,7 @@
 
 const VALID_PROPS = new Set(['id', 'value', 'checked', 'disabled', 'placeholder', 'src', 'alt', 'href', 'target', 'type', 'key', 'ref']);
 const IS_EVENT = key => key.startsWith('on');
-const IS_INTERNAL = key => ['children', 'model', 'listeners', 'tag', 'componentName', 'inlineStyle', 'innerHTML', 'replacements', 'attrs'].includes(key);
+const IS_INTERNAL = key => ['children', 'model', 'listeners', 'tag', 'componentName', 'inlineStyle', 'innerHTML', 'replacements', 'attrs', 'group'].includes(key);
 
 function processClassName(base, additions) {
     const classList = new Set(base.split(' ').filter(Boolean));
@@ -64,6 +64,33 @@ function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
         }
     }
 
+    const scopeId = vnode.props.scopeId;
+    if (scopeId) {
+        const dynamicRules = newProps.dynamicRules || [];
+        const styleId = `dynamic-style-${scopeId}`;
+        let styleEl = document.getElementById(styleId);
+
+        if (dynamicRules.length > 0) {
+            if (!styleEl) {
+                styleEl = document.createElement('style');
+                styleEl.id = styleId;
+                document.head.appendChild(styleEl);
+            }
+            const finalCSS = dynamicRules
+                .join(' ')
+                .replace(/\[data-v-scope-id\]/g, `[${scopeId}]`);
+
+            if (styleEl.textContent !== finalCSS) {
+                styleEl.textContent = finalCSS;
+            }
+        } else {
+            if (styleEl) {
+                styleEl.remove();
+            }
+        }
+    }
+
+
     const allProps = { ...oldProps, ...newProps };
     for (const key in allProps) {
         if (IS_INTERNAL(key) || (vnode.type === 'HybridComponent' && vnode.props.innerHTML.includes(`{{${key.toUpperCase()}}}`))) {
@@ -73,12 +100,16 @@ function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
         const oldValue = oldProps[key];
         const newValue = newProps[key];
         
-        // [ИЗМЕНЕНИЕ] Убираем ошибочное сравнение JSON.stringify
+        // [КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ]
+        // УДАЛЯЕМ эту ошибочную строку
+        // if (JSON.stringify(newValue) === JSON.stringify(oldValue)) continue;
+        
+        // Вместо нее используем простое и надежное сравнение
         if (newValue === oldValue) continue;
         
         if (key === 'className') {
-            const baseClassFromTemplate = (vnode.el.getAttribute('class') || '');
-            const finalClass = processClassName(baseClassFromTemplate, newValue);
+            const baseClass = vnode.el.className.baseVal ?? vnode.el.className;
+            const finalClass = processClassName(baseClass, newValue);
             if (el.className !== finalClass) {
                 el.className = finalClass;
             }
