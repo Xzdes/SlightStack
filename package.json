@@ -1,6 +1,6 @@
 {
   "name": "slightstack",
-  "version": "2.1.1",
+  "version": "2.2.1",
   "description": "Интуитивный JavaScript-фреймворк для быстрого UI, основанный на компоновке через stack и row.",
   "main": "index.js",
   "files": [
