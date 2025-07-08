@@ -2,8 +2,8 @@
 
 const breakpointOrder = ['lg', 'md', 'sm', 'base'];
 const stateOrder = ['focus', 'hover', 'group-hover'];
-const pseudoClasses = ['first', 'last', 'even', 'odd'];
-const pseudoElements = ['before', 'after'];
+const pseudoClasses = ['first', 'last', 'even', 'odd', 'disabled'];
+const pseudoElements = ['before', 'after', 'placeholder'];
 
 function parsePropKey(key) {
     if (!key.includes(':')) {
@@ -25,7 +25,7 @@ function parsePropKey(key) {
 
 function resolveProps(rawProps, stateContainer, componentState) {
     const finalProps = {
-        dynamicRules: [] // Здесь будут храниться CSS-правила
+        dynamicRules: []
     };
     const rules = [];
 
@@ -33,10 +33,6 @@ function resolveProps(rawProps, stateContainer, componentState) {
         const parsed = parsePropKey(key);
         if (parsed) {
             rules.push({ ...parsed, value: rawProps[key] });
-        } else {
-            if (!key.includes(':')) {
-                finalProps[key] = rawProps[key];
-            }
         }
     }
 
@@ -62,29 +58,42 @@ function resolveProps(rawProps, stateContainer, componentState) {
         return aPseudo - bPseudo;
     });
 
+    const dynamicRuleGroups = {};
+
     for (const rule of rules) {
         const ruleBreakpointIndex = breakpointOrder.indexOf(rule.breakpoint);
         if (ruleBreakpointIndex < activeBreakpointIndex) continue;
         
-        const cssProp = rule.prop.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`);
+        const isDynamicRule = rule.pseudo || rule.state === 'group-hover';
 
-        if (rule.pseudo) {
+        if (isDynamicRule) {
             let selector = '';
             if (rule.state === 'group-hover') selector += '[data-group-hover="true"] ';
             
             selector += `[data-v-scope-id]`;
 
             if (pseudoClasses.includes(rule.pseudo)) selector += `:${rule.pseudo}-child`;
+            else if (rule.state && rule.pseudo !=='disabled') selector += `:${rule.state}`;
+            
             if (pseudoElements.includes(rule.pseudo)) selector += `::${rule.pseudo}`;
+            
+            const cssProp = rule.prop.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`);
+            let value = rule.value;
+            if(cssProp === 'content' && typeof value === 'string' && !value.startsWith('"')) {
+                value = `"${value}"`;
+            }
 
-            let value = typeof rule.value === 'string' && !rule.value.startsWith('"') ? `"${rule.value}"` : rule.value;
-            finalProps.dynamicRules.push(`${selector} { ${cssProp}: ${value}; }`);
-            continue;
+            if (!dynamicRuleGroups[selector]) dynamicRuleGroups[selector] = [];
+            dynamicRuleGroups[selector].push(`${cssProp}: ${value};`);
+
+        } else {
+            if (rule.state && !activeStates.has(rule.state)) continue;
+            finalProps[rule.prop] = rule.value;
         }
-
-        if (rule.state && !activeStates.has(rule.state)) continue;
-        
-        finalProps[rule.prop] = rule.value;
+    }
+    
+    for(const selector in dynamicRuleGroups) {
+        finalProps.dynamicRules.push(`${selector} { ${dynamicRuleGroups[selector].join(' ')} }`);
     }
 
     return finalProps;

@@ -36,6 +36,7 @@ function setBreakpoints(newBreakpoints) {
 function updateScreenBreakpoint() {
     if (!stateContainer.screenState) return;
     const width = window.innerWidth;
+    
     stateContainer.screenState.width = width;
     stateContainer.screenState.height = window.innerHeight;
     
@@ -65,7 +66,7 @@ function attachInteractiveState(vnode) {
         }
     }
     
-    if (!needsAttachment && !props.group) return;
+    if (!needsAttachment && !props.group) return; 
 
     if (!vnode._internal) vnode._internal = { vnode: vnode };
     if (!vnode._internal.state) vnode._internal.state = {};
