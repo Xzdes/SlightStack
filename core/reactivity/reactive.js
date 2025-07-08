@@ -1,10 +1,10 @@
-// Файл: core/reactive.js (CommonJS, финальная исправленная версия)
+// Файл: core/reactivity/reactive.js
 
-const tracker = require('./tracker');
+const { getActiveUpdater } = require('./effect.js');
 const targetMap = new Map();
 
 function track(target, key) {
-    const activeEffect = tracker.getActiveUpdater();
+    const activeEffect = getActiveUpdater();
     if (activeEffect) {
         let depsMap = targetMap.get(target);
         if (!depsMap) {
@@ -53,16 +53,13 @@ function createReactive(target) {
             return value;
         },
         set(target, key, value, receiver) {
-            // --- ГЛАВНОЕ ИСПРАВЛЕНИЕ ---
             const hadKey = Array.isArray(target) ? Number(key) < target.length : Object.prototype.hasOwnProperty.call(target, key);
             const oldValue = target[key];
             const result = Reflect.set(target, key, value, receiver);
 
             if (!hadKey) {
-                // Если ключа не было (добавление нового элемента в массив)
                 trigger(target, 'length');
             } else if (value !== oldValue) {
-                // Если значение изменилось
                 trigger(target, key);
             }
 
@@ -71,13 +68,4 @@ function createReactive(target) {
     });
 }
 
-function createEffect(fn) {
-    const effect = () => {
-        tracker.startTracking(effect);
-        fn();
-        tracker.stopTracking();
-    };
-    effect();
-}
-
-module.exports = { createReactive, createEffect };
+module.exports = { createReactive };

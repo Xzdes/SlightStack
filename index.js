@@ -1,49 +1,52 @@
-// Файл: index.js
-// Задача: Служить публичным API для Node.js окружения (в основном для сборщика).
-// Он сканирует проект на наличие компонентов и предоставляет пути к файлам ядра.
+// Файл: index.js (исправленная версия)
 
 const path = require('path');
 const fs = require('fs');
 
-// --- API для сборщиков ---
-
-/**
- * Возвращает объект с абсолютными путями ко всем файлам ядра.
- * Это позволяет сборщику (Browserify) точно знать, какие файлы включать в бандл.
- * @returns {Object.<string, string>}
- */
 function getCoreFilePaths() {
     const corePath = path.resolve(__dirname, 'core');
+    const domPath = path.join(corePath, 'dom');
+    const reactivityPath = path.join(corePath, 'reactivity');
+    const rendererPath = path.join(corePath, 'renderer');
+    const vdomPath = path.join(corePath, 'vdom');
+
     return {
-        // Реактивность
-        reactive: path.join(corePath, 'reactive.js'),
-        tracker: path.join(corePath, 'tracker.js'),
-        // VDOM
-        vnode: path.join(corePath, 'vnode.js'),
-        normalize: path.join(corePath, 'normalize.js'),
-        // Рендеринг
-        dom: path.join(corePath, 'dom.js'),
-        renderer: path.join(corePath, 'renderer.js'),
-        // <<< НОВОЕ >>>
-        stateManager: path.join(corePath, 'state-manager.js'),
-        propsResolver: path.join(corePath, 'props-resolver.js'),
-        // <<< КОНЕЦ НОВОГО >>>
-        // API
+        // Top-level
         api: path.join(corePath, 'api.js'),
+        createApp: path.join(corePath, 'create-app.js'),
+        stateManager: path.join(corePath, 'state-manager.js'),
+        
+        // DOM
+        domCreation: path.join(domPath, 'creation.js'),
+        domPatching: path.join(domPath, 'patching.js'),
+
+        // Reactivity
+        reactivityEffect: path.join(reactivityPath, 'effect.js'),
+        reactivityReactive: path.join(reactivityPath, 'reactive.js'),
+
+        // Renderer
+        rendererMount: path.join(rendererPath, 'mount.js'),
+        rendererPatch: path.join(rendererPath, 'patch.js'),
+        // [ИЗМЕНЕНИЕ] Удаляем эту строку
+        // rendererPatchChildren: path.join(rendererPath, 'patch-children.js'), 
+        rendererUtils: path.join(rendererPath, 'utils.js'),
+        
+        // VDOM
+        vdomNormalize: path.join(vdomPath, 'normalize.js'),
+        vdomPropsResolver: path.join(vdomPath, 'props-resolver.js'),
+        vdomVNode: path.join(vdomPath, 'vnode.js'),
+        
+        // Пользовательский код
+        appCode: path.join(__dirname, 'demo', 'app.js'),
     };
 }
 
-/**
- * Сканирует папку `hybrid-components` и возвращает данные обо всех компонентах.
- * @returns {Object.<string, {html: string, css: string}>}
- *          Ключ - имя компонента, значение - объект с его HTML и CSS кодом.
- */
 function getHybridComponentData() {
     const hybridComponentsData = {};
     const hybridPath = path.resolve(__dirname, 'hybrid-components');
     
     if (!fs.existsSync(hybridPath)) {
-        console.warn(`[SlightUI-Build] Папка 'hybrid-components' не найдена. UI будет пустым.`);
+        console.warn(`[SlightUI-Build] Папка 'hybrid-components' не найдена.`);
         return {};
     }
 
@@ -65,10 +68,7 @@ function getHybridComponentData() {
     return hybridComponentsData;
 }
 
-// --- Основной экспорт модуля ---
-
 module.exports = {
-    // API для сборщиков: предоставляет "чертежи" и пути
     builderAPI: {
         getCoreFilePaths,
         getHybridComponentData

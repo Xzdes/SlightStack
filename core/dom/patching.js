@@ -1,24 +1,4 @@
-// Файл: core/dom.js (CommonJS, финальная исправленная версия)
-
-const { resolveProps } = require('./props-resolver.js');
-const { stateContainer } = require('./state-manager.js');
-
-function createDOMElement(vnode) {
-    // Создаем "пустой" каркас, вся логика будет в applyProps.
-    if (vnode.type === 'HybridComponent') {
-        const tempContainer = document.createElement('div');
-        const rawHTML = (vnode.props.innerHTML || '').replace(/{{SLOT}}/g, '<div data-slight-slot></div>');
-        tempContainer.innerHTML = rawHTML;
-        return tempContainer.firstElementChild || document.createComment(`hybrid-placeholder-for-${vnode.props.componentName}`);
-    }
-    if (vnode.type === 'GenericTextElement') {
-        return document.createElement(vnode.props.tag || 'p');
-    }
-    if (vnode.type === 'text') { return document.createTextNode(''); }
-    if (vnode.type === 'Fragment') { return document.createDocumentFragment(); }
-    return document.createComment(`unknown vnode type: ${vnode.type}`);
-}
-
+// Файл: core/dom/patching.js (Финальная и правильная версия)
 
 const VALID_PROPS = new Set(['id', 'className', 'value', 'checked', 'disabled', 'placeholder', 'src', 'alt', 'href', 'target', 'type', 'key', 'ref']);
 const IS_EVENT = key => key.startsWith('on');
@@ -31,18 +11,23 @@ function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
         return;
     }
     
-    // [КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ]
-    // Мы больше не используем сложный TreeWalker.
-    // Если есть проп 'text', мы просто устанавливаем textContent элемента.
-    // Это корректно заменит плейсхолдер {{TEXT}} для кнопок и контент для UI.text().
-    if (newProps.text !== undefined && el.textContent !== String(newProps.text)) {
-        el.textContent = String(newProps.text);
+    // Для GenericTextElement (UI.text) устанавливаем textContent
+    if (vnode.type === 'GenericTextElement') {
+        if (newProps.text !== undefined && el.textContent !== String(newProps.text)) {
+            el.textContent = String(newProps.text);
+        }
     }
+    
+    // TreeWalker и любая другая логика для гибридов отсюда УДАЛЕНА.
+    // Она больше не нужна, т.к. createDOMElement делает всю работу.
 
+    // Применяем атрибуты, стили и события
     const allProps = { ...oldProps, ...newProps };
     for (const key in allProps) {
-        // 'text' уже обработан, пропускаем.
-        if (IS_INTERNAL(key) || key === 'text') continue;
+        // Пропускаем все пропсы, которые являются частью шаблона или внутренними.
+        if (IS_INTERNAL(key) || (vnode.type === 'HybridComponent' && vnode.props.innerHTML.includes(`{{${key.toUpperCase()}}}`))) {
+            continue;
+        }
 
         const oldValue = oldProps[key];
         const newValue = newProps[key];
@@ -78,8 +63,7 @@ function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
 function applyProps(el, vnode, oldResolvedProps = {}) {
     if (!vnode) return;
     
-    // Этот вызов здесь ОСТАЕТСЯ, так как он нужен для patch
     applyPlainProps(el, oldResolvedProps, vnode.resolvedProps, vnode);
 }
 
-module.exports = { createDOMElement, applyProps };
+module.exports = { applyProps };

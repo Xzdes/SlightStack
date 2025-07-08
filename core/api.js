@@ -1,7 +1,7 @@
-// Файл: core/api.js (CommonJS, финальная исправленная версия)
+// Файл: core/api.js
 
-const { createHybridVNode, createComponentVNode, createTextVNode, createFragmentVNode } = require('./vnode.js');
-const { createRender } = require('./renderer.js');
+const { createHybridVNode, createComponentVNode, createTextVNode, createFragmentVNode } = require('./vdom/vnode.js');
+const { createRender } = require('./create-app.js');
 const { initScreenState, setBreakpoints } = require('./state-manager.js');
 
 function createComponentBuilder(componentName, hybridData, initialProps = {}) {
@@ -15,12 +15,10 @@ function createComponentBuilder(componentName, hybridData, initialProps = {}) {
 
     const builder = {
         vNode: vNode,
-        
         props: function(propsObject) {
             Object.assign(this.vNode.props, propsObject);
             return this;
         },
-        
         on: function(eventName, handler, selector = 'root') {
             if (selector === 'root') {
                 this.vNode.props['on' + eventName.charAt(0).toUpperCase() + eventName.slice(1)] = handler;
@@ -33,20 +31,16 @@ function createComponentBuilder(componentName, hybridData, initialProps = {}) {
             }
             return this;
         },
-
         children: function(...childBuilders) {
             this.vNode.props.children = childBuilders;
             return this;
         },
-
         key: function(k) { this.vNode.props.key = k; return this; },
         ref: function(r) { this.vNode.props.ref = r; return this; },
-        
         model: function(stateObject, propertyName) {
             this.vNode.props.model = [stateObject, propertyName];
             return this;
         },
-        
         toJSON: function() { return this.vNode; }
     };
 
@@ -82,10 +76,7 @@ function createUI(hybridData, reactiveFns) {
 
         const vNode = {
             type: 'GenericTextElement',
-            props: {
-                tag: 'p',
-                ...initialProps
-            },
+            props: { tag: 'p', ...initialProps },
             children: []
         };
         
