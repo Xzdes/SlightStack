@@ -90,52 +90,54 @@ function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
         }
     }
 
-
-    const allProps = { ...oldProps, ...newProps };
-    for (const key in allProps) {
-        if (IS_INTERNAL(key) || (vnode.type === 'HybridComponent' && vnode.props.innerHTML.includes(`{{${key.toUpperCase()}}}`))) {
-            continue;
+    // --- 1. Удаление старых пропсов, которых нет в новых ---
+    for (const key in oldProps) {
+        if (!(key in newProps)) {
+            if (IS_EVENT(key)) {
+                el.removeEventListener(key.slice(2).toLowerCase(), oldProps[key]);
+            } else if (key === 'style') {
+                el.style.cssText = '';
+            } else if (VALID_PROPS.has(key)) {
+                el[key] = '';
+            } else if (typeof el.style[key] !== 'undefined') {
+                el.style[key] = '';
+            } else {
+                el.removeAttribute(key);
+            }
         }
+    }
 
+    // --- 2. Добавление / Обновление новых пропсов ---
+    for (const key in newProps) {
+        if (IS_INTERNAL(key) || key === 'text' || key === 'dynamicRules') continue;
+        
         const oldValue = oldProps[key];
         const newValue = newProps[key];
         
-        // [КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ]
-        // УДАЛЯЕМ эту ошибочную строку
-        // if (JSON.stringify(newValue) === JSON.stringify(oldValue)) continue;
-        
-        // Вместо нее используем простое и надежное сравнение
         if (newValue === oldValue) continue;
-        
+
         if (key === 'className') {
             const baseClass = vnode.el.className.baseVal ?? vnode.el.className;
             const finalClass = processClassName(baseClass, newValue);
-            if (el.className !== finalClass) {
-                el.className = finalClass;
-            }
-            continue;
-        }
-        
-        if (IS_EVENT(key)) {
-            const eventName = key.slice(2).toLowerCase();
-            if (oldValue) el.removeEventListener(eventName, oldValue);
-            if (newValue) el.addEventListener(eventName, newValue);
-        } else if (key === 'style' && typeof newValue === 'object') {
+            if (el.className !== finalClass) el.className = finalClass;
+        } else if (IS_EVENT(key)) {
+            if (oldValue) el.removeEventListener(key.slice(2).toLowerCase(), oldValue);
+            el.addEventListener(key.slice(2).toLowerCase(), newValue);
+        } else if (key === 'style') {
             Object.assign(el.style, newValue);
         } else if (VALID_PROPS.has(key)) {
-             if (el[key] !== newValue) {
-                el[key] = newValue;
-             }
+            if (el[key] !== newValue) el[key] = newValue;
         } else {
-             if (typeof el.style[key] !== 'undefined') {
+            // Если это не стандартный атрибут, считаем его CSS-свойством
+            if (typeof el.style[key] !== 'undefined') {
                 el.style[key] = newValue;
-             } else {
-                 if (newValue == null || newValue === false) {
-                     el.removeAttribute(key);
-                 } else {
-                     el.setAttribute(key, String(newValue));
-                 }
-             }
+            } else {
+                if (newValue == null || newValue === false) {
+                    el.removeAttribute(key);
+                } else {
+                    el.setAttribute(key, String(newValue));
+                }
+            }
         }
     }
 }
@@ -143,7 +145,6 @@ function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
 
 function applyProps(el, vnode, oldResolvedProps = {}) {
     if (!vnode) return;
-    
     applyPlainProps(el, oldResolvedProps, vnode.resolvedProps, vnode);
 }
 

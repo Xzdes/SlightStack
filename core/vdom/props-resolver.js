@@ -33,6 +33,8 @@ function resolveProps(rawProps, stateContainer, componentState) {
         const parsed = parsePropKey(key);
         if (parsed) {
             rules.push({ ...parsed, value: rawProps[key] });
+        } else if (!key.includes(':')) {
+            finalProps[key] = rawProps[key];
         }
     }
 
@@ -43,24 +45,31 @@ function resolveProps(rawProps, stateContainer, componentState) {
     const activeStates = new Set();
     if (componentState.isFocused) activeStates.add('focus');
     if (componentState.isHovering) activeStates.add('hover');
-
+    
+    // [КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ]
+    // Сортируем правила от НАИМЕНЕЕ специфичных к НАИБОЛЕЕ специфичным.
+    // Это позволит правильным значениям перезаписывать базовые.
     rules.sort((a, b) => {
-        const aBP = breakpointOrder.indexOf(a.breakpoint);
-        const bBP = breakpointOrder.indexOf(b.breakpoint);
-        if (aBP !== bBP) return aBP - bBP;
+        let scoreA = 0;
+        let scoreB = 0;
 
-        const aState = a.state ? stateOrder.indexOf(a.state) : stateOrder.length;
-        const bState = b.state ? stateOrder.indexOf(b.state) : stateOrder.length;
-        if (aState !== bState) return aState - bState;
+        // Брейкпойнты (sm > base)
+        scoreA += breakpointOrder.length - breakpointOrder.indexOf(a.breakpoint);
+        scoreB += breakpointOrder.length - breakpointOrder.indexOf(b.breakpoint);
+        
+        // Состояния (hover > base)
+        if (a.state) scoreA += 10;
+        if (b.state) scoreB += 10;
 
-        const aPseudo = a.pseudo ? (pseudoClasses.indexOf(a.pseudo) !== -1 ? 0 : 1) : 2;
-        const bPseudo = b.pseudo ? (pseudoClasses.indexOf(b.pseudo) !== -1 ? 0 : 1) : 2;
-        return aPseudo - bPseudo;
+        // Псевдо-селекторы
+        if (a.pseudo) scoreA += 100;
+        if (b.pseudo) scoreB += 100;
+        
+        return scoreA - scoreB;
     });
 
-    const dynamicRuleGroups = {};
-
     for (const rule of rules) {
+        // Пропускаем правила для неактивных брейкпойнтов
         const ruleBreakpointIndex = breakpointOrder.indexOf(rule.breakpoint);
         if (ruleBreakpointIndex < activeBreakpointIndex) continue;
         
@@ -69,12 +78,9 @@ function resolveProps(rawProps, stateContainer, componentState) {
         if (isDynamicRule) {
             let selector = '';
             if (rule.state === 'group-hover') selector += '[data-group-hover="true"] ';
-            
             selector += `[data-v-scope-id]`;
-
             if (pseudoClasses.includes(rule.pseudo)) selector += `:${rule.pseudo}-child`;
             else if (rule.state && rule.pseudo !=='disabled') selector += `:${rule.state}`;
-            
             if (pseudoElements.includes(rule.pseudo)) selector += `::${rule.pseudo}`;
             
             const cssProp = rule.prop.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`);
@@ -82,18 +88,17 @@ function resolveProps(rawProps, stateContainer, componentState) {
             if(cssProp === 'content' && typeof value === 'string' && !value.startsWith('"')) {
                 value = `"${value}"`;
             }
-
-            if (!dynamicRuleGroups[selector]) dynamicRuleGroups[selector] = [];
-            dynamicRuleGroups[selector].push(`${cssProp}: ${value};`);
-
+            finalProps.dynamicRules.push(`${selector} { ${cssProp}: ${value}; }`);
         } else {
-            if (rule.state && !activeStates.has(rule.state)) continue;
+            // Для обычных пропсов (включая :hover и :focus на сам элемент)
+            if (rule.state && !activeStates.has(rule.state)) {
+                // Если состояние неактивно, это правило нас не интересует.
+                // Базовое правило (без состояния) уже было применено ранее благодаря сортировке.
+                continue;
+            }
+            // Просто перезаписываем значение. Более специфичное правило придет позже и перезапишет это.
             finalProps[rule.prop] = rule.value;
         }
-    }
-    
-    for(const selector in dynamicRuleGroups) {
-        finalProps.dynamicRules.push(`${selector} { ${dynamicRuleGroups[selector].join(' ')} }`);
     }
 
     return finalProps;
