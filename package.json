@@ -1,6 +1,6 @@
 {
   "name": "slightstack",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "Интуитивный JavaScript-фреймворк для быстрого UI, основанный на компоновке через stack и row.",
   "main": "index.js",
   "files": [
@@ -17,7 +17,7 @@
   },
   "keywords": ["ui", "framework", "vdom", "reactive", "stack", "fluent"],
   "author": "Xzdes",
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {
     "browserify": "^17.0.1",
     "express": "^5.1.0"
