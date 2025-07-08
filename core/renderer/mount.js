@@ -4,10 +4,16 @@ const { createDOMElement } = require('../dom/creation.js');
 const { applyProps } = require('../dom/patching.js');
 const { attachInteractiveState } = require('../state-manager.js');
 
-function mount(vNode, container) {
+function mount(vNode, container, anchor = null) {
     if (!vNode) return;
     
-    // [РЕШЕНИЕ ПРОБЛЕМЫ] Возвращаем логику инъекции стилей!
+    if (vNode.type === 'Fragment') {
+        vNode.anchor = document.createComment('fragment-anchor');
+        if (container) {
+            container.insertBefore(vNode.anchor, anchor);
+        }
+    }
+    
     if (vNode.type === 'HybridComponent') {
         const { componentName, inlineStyle } = vNode.props;
         const styleId = `slight-style-${componentName}`;
@@ -41,22 +47,37 @@ function mount(vNode, container) {
         const children = vNode.resolvedProps?.children || vNode.children;
         if (children && children.length > 0) {
             const mountContainer = vNode.type === 'Fragment' ? container : (vNode.el.querySelector('[data-slight-slot]') || vNode.el);
-            children.forEach(child => mount(child, mountContainer));
+            // [ИЗМЕНЕНИЕ] Для детей фрагмента мы передаем его собственный якорь.
+            // Для детей обычного элемента якорь не нужен (null), они просто добавляются в конец.
+            const childAnchor = vNode.type === 'Fragment' ? vNode.anchor : null;
+            children.forEach(child => mount(child, mountContainer, childAnchor));
         }
     }
-    if (container && vNode.type !== 'Fragment') container.appendChild(vNode.el);
+    
+    if (container && vNode.type !== 'Fragment') {
+        container.insertBefore(el, anchor);
+    }
+
     if (vNode.props?.ref) vNode.props.ref.current = vNode.el;
 }
 
 function unmount(vNode) {
     if (!vNode) return;
+    
     if (vNode.type === 'Fragment') {
-        vNode.children.forEach(unmount);
+        if (vNode.anchor && vNode.anchor.parentNode) {
+            vNode.anchor.parentNode.removeChild(vNode.anchor);
+        }
+        const children = vNode.resolvedProps?.children || vNode.children || [];
+        children.forEach(unmount);
         return;
     }
+
     if (vNode.props?.ref) vNode.props.ref.current = null;
     const parent = vNode.el.parentNode;
-    if (parent) parent.removeChild(vNode.el);
+    if (parent) {
+        parent.removeChild(vNode.el);
+    }
 }
 
 module.exports = { mount, unmount };

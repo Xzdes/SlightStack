@@ -1,4 +1,4 @@
-// Файл: demo/server.js (Финальная исправленная версия)
+// Файл: demo/server.js
 
 const express = require('express');
 const browserify = require('browserify');
@@ -11,41 +11,37 @@ const PORT = 3000;
 
 function escapePath(p) { return p.replace(/\\/g, '\\\\'); }
 
+function requireCoreFile(key, coreFiles) {
+    const filePath = coreFiles[key];
+    if (!filePath) {
+        throw new Error(`[SlightUI Build] Ошибка: не найден путь для ключа ядра '${key}'. Проверьте getCoreFilePaths в index.js.`);
+    }
+    return escapePath(filePath);
+}
+
 app.get('/bundle.js', (req, res) => {
     console.log('[Server] Запрос на /bundle.js. Начинаю сборку...');
     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
     try {
         const coreFiles = slightUI.builderAPI.getCoreFilePaths();
         const hybridData = slightUI.builderAPI.getHybridComponentData();
-
-        // [ИЗМЕНЕНИЕ] Добавляем хелпер для безопасной генерации путей.
-        // Он сразу выдаст ошибку, если ключ не найден, и скажет, какой именно.
-        function requireCoreFile(key) {
-            const filePath = coreFiles[key];
-            if (!filePath) {
-                // Эта ошибка будет видна на сервере и поможет при отладке.
-                throw new Error(`[SlightUI Build] Ошибка: не найден путь для ключа ядра '${key}'. Проверьте getCoreFilePaths в index.js.`);
-            }
-            return escapePath(filePath);
-        }
-
-        // [ИЗМЕНЕНИЕ] Переписываем точку входа, используя новые, модульные файлы.
+        
+        // [ИЗМЕНЕНИЕ] Правильная сборка зависимостей
         const entryPointContent = `
-            // Reactivity
-            const { createEffect } = require('${requireCoreFile('reactivityEffect')}');
-            const { createReactive } = require('${requireCoreFile('reactivityReactive')}');
+            // 1. Импортируем все части ядра
+            const { createReactive } = require('${requireCoreFile('reactivityReactive', coreFiles)}');
+            const { createEffect } = require('${requireCoreFile('reactivityEffect', coreFiles)}');
+            const { createUI } = require('${requireCoreFile('api', coreFiles)}');
 
-            // API и сборка приложения
-            const { createUI } = require('${requireCoreFile('api')}');
-            
-            // Собираем зависимости для createUI
+            // 2. Собираем объект с зависимостями для UI
             const reactiveFns = { createReactive, createEffect };
             const hybridComponentData = ${JSON.stringify(hybridData, null, 2)};
 
+            // 3. Создаем UI, передавая зависимости
             const UI = createUI(hybridComponentData, reactiveFns);
             
-            // Запускаем пользовательское приложение
-            const appCode = require('${requireCoreFile('appCode')}'); // Используем новый ключ для app.js
+            // 4. Запускаем пользовательское приложение
+            const appCode = require('${requireCoreFile('appCode', coreFiles)}');
             appCode(UI);
         `;
 
@@ -102,5 +98,4 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`\n✅ SlightStack Modular Demo запущено на http://localhost:${PORT}`);
-    console.log('   Остановите сервер через Ctrl+C.');
 });

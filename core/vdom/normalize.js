@@ -7,7 +7,6 @@ function normalize(node) {
         return null;
     }
     if (typeof node === 'string' || typeof node === 'number') {
-        // Заворачиваем голый текст в GenericTextElement для единообразия
         return { type: 'GenericTextElement', props: { text: String(node), tag: 'span' }, children: [] };
     }
     if (node && typeof node.toJSON === 'function') {
@@ -22,18 +21,21 @@ function normalize(node) {
             const resolvedNode = node.type(propsWithChildren);
             return normalize(resolvedNode);
         }
+        
         const childrenSource = node.props?.children || node.children;
         const normalizedChildren = normalize(childrenSource);
+        
+        const finalChildren = normalizedChildren ? (normalizedChildren.type === 'Fragment' ? normalizedChildren.children : [normalizedChildren]) : [];
+
         if (node.type === 'HybridComponent') {
-            node.props.children = normalizedChildren ? (normalizedChildren.type === 'Fragment' ? normalizedChildren.children : [normalizedChildren]) : [];
-        } else if (node.type === 'GenericTextElement') {
-            // У этого типа нет детей
+            node.props.children = finalChildren;
         } else {
-            node.children = normalizedChildren ? (normalizedChildren.type === 'Fragment' ? normalizedChildren.children : [normalizedChildren]) : [];
+            node.children = finalChildren;
         }
+        
         return node;
     }
-    console.warn('[SlightUI-Normalize] Не удалось нормализовать узел, он будет проигнорирован:', node);
+    console.warn('[SlightUI-Normalize] Не удалось нормализовать узел:', node);
     return null;
 }
 

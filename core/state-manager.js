@@ -6,15 +6,24 @@ const stateContainer = {
 let configuredBreakpoints = {};
 let breakpointOrder = [];
 
+let mainRenderEffect = null;
+
+function setMainRenderEffect(effect) {
+    mainRenderEffect = effect;
+}
+
 function initScreenState(createReactiveFn) {
     if (stateContainer.screenState) return;
+    
+    // Мы снова делаем screenState реактивным, так как create-app передает createReactive
     stateContainer.screenState = createReactiveFn({
         width: window.innerWidth,
         height: window.innerHeight,
         breakpoint: 'base'
     });
+
     window.addEventListener('resize', updateScreenBreakpoint, { passive: true });
-    updateScreenBreakpoint();
+    updateScreenBreakpoint(); // Первоначальный вызов для установки значения
 }
 
 function setBreakpoints(newBreakpoints) {
@@ -28,8 +37,11 @@ function setBreakpoints(newBreakpoints) {
 function updateScreenBreakpoint() {
     if (!stateContainer.screenState) return;
     const width = window.innerWidth;
+    const oldBreakpoint = stateContainer.screenState.breakpoint;
+
     stateContainer.screenState.width = width;
     stateContainer.screenState.height = window.innerHeight;
+    
     let currentBreakpoint = 'base';
     for (const key of breakpointOrder) {
         if (width >= configuredBreakpoints[key]) {
@@ -37,17 +49,11 @@ function updateScreenBreakpoint() {
             break;
         }
     }
+    
+    // Это изменение будет отслежено системой реактивности,
+    // так как мы читаем screenState.breakpoint внутри resolveProps,
+    // который вызывается в главном эффекте.
     stateContainer.screenState.breakpoint = currentBreakpoint;
-}
-
-function recalculateAndApplyProps(vnode) {
-    const { applyProps } = require('./dom/patching.js'); // Обновленный путь
-    const { resolveProps } = require('./vdom/props-resolver.js');
-    if (vnode && vnode.el) {
-        const oldResolvedProps = vnode.resolvedProps;
-        vnode.resolvedProps = resolveProps(vnode.props, stateContainer, vnode._internal.state || {});
-        applyProps(vnode.el, vnode, oldResolvedProps);
-    }
 }
 
 const interactiveStates = {
@@ -71,14 +77,19 @@ function attachInteractiveState(vnode) {
         const stateConfig = interactiveStates[stateName];
         const propIdentifier = `:${stateName}:`;
         if (Object.keys(props).some(p => p.includes(propIdentifier)) && !vnode._internal.state[`has${stateName}Listener`]) {
-            vnode.el.addEventListener(stateConfig.on, () => {
-                vnode._internal.state[stateConfig.prop] = true;
-                recalculateAndApplyProps(vnode);
-            });
-            vnode.el.addEventListener(stateConfig.off, () => {
-                vnode._internal.state[stateConfig.prop] = false;
-                recalculateAndApplyProps(vnode);
-            });
+            
+            const createHandler = (isEntering) => () => {
+                if (vnode._internal.state[stateConfig.prop] !== isEntering) {
+                    vnode._internal.state[stateConfig.prop] = isEntering;
+                    if (mainRenderEffect) {
+                        mainRenderEffect();
+                    }
+                }
+            };
+
+            vnode.el.addEventListener(stateConfig.on, createHandler(true));
+            vnode.el.addEventListener(stateConfig.off, createHandler(false));
+
             vnode._internal.state[`has${stateName}Listener`] = true;
         }
     }
@@ -88,5 +99,6 @@ module.exports = {
     initScreenState,
     setBreakpoints,
     stateContainer,
-    attachInteractiveState
+    attachInteractiveState,
+    setMainRenderEffect
 };

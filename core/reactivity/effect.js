@@ -21,6 +21,8 @@ function createEffect(fn) {
         stopTracking();
     };
     effect();
+    // [ИЗМЕНЕНИЕ] Возвращаем саму функцию эффекта, чтобы ее можно было вызывать извне.
+    return effect;
 }
 
 module.exports = { createEffect, getActiveUpdater };

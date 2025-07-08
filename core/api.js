@@ -2,7 +2,6 @@
 
 const { createHybridVNode, createComponentVNode, createTextVNode, createFragmentVNode } = require('./vdom/vnode.js');
 const { createRender } = require('./create-app.js');
-const { initScreenState, setBreakpoints } = require('./state-manager.js');
 
 function createComponentBuilder(componentName, hybridData, initialProps = {}) {
     const data = hybridData[componentName];
@@ -51,11 +50,13 @@ function createComponentBuilder(componentName, hybridData, initialProps = {}) {
 }
 
 function createUI(hybridData, reactiveFns) {
-    initScreenState(reactiveFns.createReactive);
-
     const UI = {};
-
-    UI.config = (options) => { if (options.breakpoints) { setBreakpoints(options.breakpoints); } };
+    
+    // Временно храним конфиг здесь, пока не будет вызван UI.create
+    UI._config = {};
+    UI.config = (options) => {
+        Object.assign(UI._config, options);
+    };
     
     for (const componentName in hybridData) { 
         UI[componentName] = (initialPropsOrText = {}) => { 
@@ -96,9 +97,18 @@ function createUI(hybridData, reactiveFns) {
     UI.component = (componentFn, props, ...children) => { return { toJSON: function() { return createComponentVNode(componentFn, props, children); } }; };
     UI.if = (conditionFn) => { let thenBranch, elseBranch; const ifBuilder = { then: function(builder) { thenBranch = builder; return ifBuilder; }, else: function(builder) { elseBranch = builder; return ifBuilder; }, toJSON: function() { const branch = conditionFn() ? thenBranch : elseBranch; return branch; } }; return ifBuilder; };
     UI.for = (config) => { if (!config || typeof config.each !== 'function' || !config.key || typeof config.as !== 'function') { console.error('[SlightUI.for] требует объект с полями: each (ФУНКЦИЯ, возвращающая массив), key (строка), as (функция).'); return { toJSON: () => createFragmentVNode([]) }; } return { toJSON: function() { const items = config.each(); const children = items.map((item, index) => { const builder = config.as(item, index); if (builder && typeof builder.key === 'function') { const keyValue = item[config.key]; if (keyValue === undefined) { console.warn(`[SlightUI.for] Ключ "${config.key}" не найден в элементе:`, item); } builder.key(keyValue); } return builder; }); return createFragmentVNode(children); } }; };
+    
+    // Передаем createEffect в createRender
+    const render = createRender(reactiveFns);
+    
     UI.createReactive = reactiveFns.createReactive;
-    const render = createRender(reactiveFns.createEffect);
-    UI.create = (options) => { if (!options.target || !options.view) { throw new Error("SlightUI.create требует 'target' и 'view' опции."); } render(options.view, options.target); };
+    
+    // UI.create теперь будет передавать опции в render
+    UI.create = (options) => { 
+        if (!options.target || !options.view) { throw new Error("SlightUI.create требует 'target' и 'view' опции."); } 
+        // Передаем UI.config в render, чтобы он мог настроить state-manager
+        render(options.view, options.target, UI._config); 
+    };
     
     return UI;
 }

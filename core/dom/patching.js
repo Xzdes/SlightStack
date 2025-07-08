@@ -1,30 +1,71 @@
-// Файл: core/dom/patching.js (Финальная и правильная версия)
+// Файл: core/dom/patching.js
 
-const VALID_PROPS = new Set(['id', 'className', 'value', 'checked', 'disabled', 'placeholder', 'src', 'alt', 'href', 'target', 'type', 'key', 'ref']);
+const VALID_PROPS = new Set(['id', 'value', 'checked', 'disabled', 'placeholder', 'src', 'alt', 'href', 'target', 'type', 'key', 'ref']);
 const IS_EVENT = key => key.startsWith('on');
 const IS_INTERNAL = key => ['children', 'model', 'listeners', 'tag', 'componentName', 'inlineStyle', 'innerHTML', 'replacements', 'attrs'].includes(key);
 
+function processClassName(base, additions) {
+    const classList = new Set(base.split(' ').filter(Boolean));
+    
+    if (typeof additions === 'string') {
+        additions.split(' ').filter(Boolean).forEach(c => classList.add(c));
+    } else if (Array.isArray(additions)) {
+        additions.flat().forEach(item => {
+            if (typeof item === 'string') {
+                classList.add(item);
+            } else if (typeof item === 'object' && item !== null) {
+                for (const key in item) {
+                    if (item[key]) {
+                        classList.add(key);
+                    } else {
+                        classList.delete(key);
+                    }
+                }
+            }
+        });
+    } else if (typeof additions === 'object' && additions !== null) {
+        for (const key in additions) {
+            if (additions[key]) {
+                classList.add(key);
+            } else {
+                classList.delete(key);
+            }
+        }
+    }
+    
+    return Array.from(classList).join(' ');
+}
+
 function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
-    if (el.nodeType !== 1) { // Для текстовых узлов
+    if (el.nodeType !== 1) { 
         const newText = newProps.text !== undefined ? String(newProps.text) : '';
         if (el.textContent !== newText) { el.textContent = newText; }
         return;
     }
     
-    // Для GenericTextElement (UI.text) устанавливаем textContent
     if (vnode.type === 'GenericTextElement') {
         if (newProps.text !== undefined && el.textContent !== String(newProps.text)) {
             el.textContent = String(newProps.text);
         }
     }
     
-    // TreeWalker и любая другая логика для гибридов отсюда УДАЛЕНА.
-    // Она больше не нужна, т.к. createDOMElement делает всю работу.
+    if (vnode.type === 'HybridComponent') {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while(node = walker.nextNode()) {
+            const placeholderMatch = node.nodeValue.match(/{{([A-Z_]+)}}/);
+            if (placeholderMatch) {
+                const propKey = placeholderMatch[1].toLowerCase();
+                const newValue = newProps[propKey];
+                if (newValue !== undefined && node.nodeValue !== String(newValue)) {
+                    node.nodeValue = String(newValue);
+                }
+            }
+        }
+    }
 
-    // Применяем атрибуты, стили и события
     const allProps = { ...oldProps, ...newProps };
     for (const key in allProps) {
-        // Пропускаем все пропсы, которые являются частью шаблона или внутренними.
         if (IS_INTERNAL(key) || (vnode.type === 'HybridComponent' && vnode.props.innerHTML.includes(`{{${key.toUpperCase()}}}`))) {
             continue;
         }
@@ -32,21 +73,30 @@ function applyPlainProps(el, oldProps = {}, newProps = {}, vnode) {
         const oldValue = oldProps[key];
         const newValue = newProps[key];
         
+        // [ИЗМЕНЕНИЕ] Убираем ошибочное сравнение JSON.stringify
         if (newValue === oldValue) continue;
-
+        
+        if (key === 'className') {
+            const baseClassFromTemplate = (vnode.el.getAttribute('class') || '');
+            const finalClass = processClassName(baseClassFromTemplate, newValue);
+            if (el.className !== finalClass) {
+                el.className = finalClass;
+            }
+            continue;
+        }
+        
         if (IS_EVENT(key)) {
             const eventName = key.slice(2).toLowerCase();
             if (oldValue) el.removeEventListener(eventName, oldValue);
             if (newValue) el.addEventListener(eventName, newValue);
         } else if (key === 'style' && typeof newValue === 'object') {
-            el.style.cssText = '';
-            for (const styleKey in newValue) { el.style[styleKey] = newValue[styleKey]; }
+            Object.assign(el.style, newValue);
         } else if (VALID_PROPS.has(key)) {
              if (el[key] !== newValue) {
                 el[key] = newValue;
              }
         } else {
-             if (el.style[key] !== undefined) {
+             if (typeof el.style[key] !== 'undefined') {
                 el.style[key] = newValue;
              } else {
                  if (newValue == null || newValue === false) {
