@@ -4,7 +4,8 @@ const express = require('express');
 const browserify = require('browserify');
 const path = require('path');
 const stream = require('stream');
-const slightUI = require('../index.js');
+// [ИЗМЕНЕНИЕ] Указываем правильный путь к нашему локальному пакету
+const slightUI = require('../index.js'); 
 
 const app = express();
 const PORT = 3000;
@@ -24,23 +25,22 @@ app.get('/bundle.js', (req, res) => {
     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
     try {
         const coreFiles = slightUI.builderAPI.getCoreFilePaths();
-        const hybridData = slightUI.builderAPI.getHybridComponentData();
+        // [ИЗМЕНЕНИЕ] Передаем путь к компонентам явно
+        const hybridData = slightUI.builderAPI.getHybridComponentData(path.resolve(__dirname, '..', 'hybrid-components'));
         
-        // [ИЗМЕНЕНИЕ] Правильная сборка зависимостей
         const entryPointContent = `
-            // 1. Импортируем все части ядра
             const { createReactive } = require('${requireCoreFile('reactivityReactive', coreFiles)}');
             const { createEffect } = require('${requireCoreFile('reactivityEffect', coreFiles)}');
             const { createUI } = require('${requireCoreFile('api', coreFiles)}');
+            const { provideRouterDeps } = require('${requireCoreFile('router', coreFiles)}');
 
-            // 2. Собираем объект с зависимостями для UI
             const reactiveFns = { createReactive, createEffect };
             const hybridComponentData = ${JSON.stringify(hybridData, null, 2)};
 
-            // 3. Создаем UI, передавая зависимости
             const UI = createUI(hybridComponentData, reactiveFns);
             
-            // 4. Запускаем пользовательское приложение
+            provideRouterDeps({ UI, createReactiveFn: createReactive });
+
             const appCode = require('${requireCoreFile('appCode', coreFiles)}');
             appCode(UI);
         `;
@@ -84,7 +84,11 @@ app.get('/', (req, res) => {
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
                     margin: 0; 
                     background-color: #f4f4f9;
-                    padding-top: 40px;
+                }
+                #app {
+                    width: 100%;
+                    height: 100vh;
+                    overflow: hidden; /* Предотвращаем двойной скролл */
                 }
             </style>
         </head>
